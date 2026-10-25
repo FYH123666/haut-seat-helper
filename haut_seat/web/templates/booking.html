@@ -1,0 +1,143 @@
+{% extends "booking_base.html" %}
+{% import "_macros.html" as m with context %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+  <h1 class="h5 mb-0">我的预约</h1>
+  <a class="btn btn-primary btn-sm" href="/booking/new">新建预约</a>
+</div>
+
+{# 学校凭据状态：用户最需要知道的就是"我的预约到底会不会被执行、用的是哪个账号"。
+   这里只显示标识与状态（学校账号 + 指纹 + 时间），**不显示任何凭据值**。 #}
+<div class="card shadow-sm mb-3">
+  <div class="card-body py-2">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <div class="small">
+        <strong>图书馆账号：</strong>
+        {% if cred.bound %}
+          <span class="mono">{{ cred.school_username }}</span>
+          <span class="tone-badge tone-{{ cred.status_tone }} ms-1">{{ cred.status_label }}</span>
+          <span class="text-muted ms-2">指纹 {{ cred.fingerprint }}</span>
+          {% if cred.captured_at %}<span class="text-muted ms-2">绑定于 {{ cred.captured_at }}</span>{% endif %}
+        {% else %}
+          <span class="tone-badge tone-muted">未绑定</span>
+          <span class="text-muted">（未绑定时你的预约不会被执行）</span>
+        {% endif %}
+      </div>
+      <div class="action-row">
+        {% if cred.bound %}
+        <form method="post" action="/booking/verify" class="m-0">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          <button class="btn btn-sm btn-outline-primary" type="submit">重新验证</button>
+        </form>
+        {% endif %}
+        <a class="btn btn-sm btn-outline-secondary" href="/booking/bind">
+          {{ '重新登录绑定' if cred.bound else '绑定图书馆账号' }}
+        </a>
+      </div>
+    </div>
+    {% if cred.message %}<div class="text-muted small mt-1">{{ cred.message }}</div>{% endif %}
+  </div>
+</div>
+
+{% if not plans %}
+<div class="card shadow-sm"><div class="card-body">
+  <p class="mb-2">还没有任何预约。</p>
+  <a class="btn btn-primary btn-sm" href="/booking/new">新建第一个预约</a>
+</div></div>
+{% else %}
+<div class="card shadow-sm">
+  <div class="card-body">
+    <div class="table-responsive">
+      <table class="table table-sm align-middle">
+        <thead>
+          <tr>
+            <th>#</th><th>名称</th><th>状态</th><th>什么时候执行</th>
+            <th>座位时段</th><th>区域</th><th>最近一次结果</th><th>来源</th><th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for p in plans %}
+          {% set last = last_runs.get(p.id) %}
+          <tr>
+            <td>{{ p.id }}</td>
+            <td>
+              <a href="/booking/{{ p.id }}">{{ p.name }}</a>
+              {% if p.pause_requested %}<span class="tone-badge tone-warning">暂停中</span>{% endif %}
+            </td>
+            <td>{{ m.plan_badge(p.status) }}</td>
+            <td class="small">
+              {{ when_labels.get(p.id) }}
+              <br><span class="text-muted mono">{{ p.run_date }} · 触发 {{ p.trigger_at }}</span>
+            </td>
+            <td class="mono small">
+              {% if seat_windows.get(p.id) and seat_windows[p.id][0] and seat_windows[p.id][1] %}
+                {{ seat_windows[p.id][0] }}–{{ seat_windows[p.id][1] }}
+              {% else %}<span class="text-muted">时间不合法</span>{% endif %}
+              <br><span class="text-muted">{{ repeat_labels.get(p.repeat_rule, p.repeat_rule) }}</span>
+            </td>
+            <td>{{ p.regionid }}</td>
+            {# 最近一次结果：约到了就给出预约编号，失败/未知就给出原因 —— 用户最关心的就是这一格。 #}
+            <td class="small">
+              {% if last %}
+                {{ m.run_badge(last.status) }}
+                {% if last.booking_id %}<br>预约编号 <span class="mono">{{ last.booking_id }}</span>{% endif %}
+                {% if last.status.value == 'succeeded' and not last.booking_id %}
+                  <br><span class="text-muted">已成功（接口未返回预约编号）</span>
+                {% endif %}
+                <br><span class="text-muted">{{ run_duration_text(last) }}</span>
+                {% if last.category %}<br>{{ m.err_badge(last.category) }}{% endif %}
+                {% if last.message %}<br><span class="text-muted">{{ last.message }}</span>{% endif %}
+              {% else %}
+                <span class="text-muted">还没执行过</span>
+              {% endif %}
+            </td>
+            <td class="small">
+              {% set ocode = origins.get(p.id, 'admin') %}
+              <span class="tone-badge tone-{{ 'dark' if ocode == 'user' else 'secondary' }}">{{ origin_labels.get(ocode, ocode) }}</span>
+            </td>
+            <td>
+              <div class="action-row">
+                {% if p.status.value == 'running' %}
+                  <form method="post" action="/booking/{{ p.id }}/pause"
+                        data-confirm="将不再启动新的运行；已经发出的提交请求不会被中断。确定继续？">
+                    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                    <button class="btn btn-sm btn-outline-warning" type="submit">暂停（本轮后）</button>
+                  </form>
+                {% elif p.status.value == 'pending' %}
+                  <form method="post" action="/booking/{{ p.id }}/pause">
+                    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                    <button class="btn btn-sm btn-outline-warning" type="submit">暂停</button>
+                  </form>
+                {% elif p.status.value == 'unknown' %}
+                  <a class="btn btn-sm btn-outline-success" href="/booking/{{ p.id }}">核实后恢复</a>
+                {% else %}
+                  <form method="post" action="/booking/{{ p.id }}/enable">
+                    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                    <button class="btn btn-sm btn-outline-success" type="submit">启用</button>
+                  </form>
+                {% endif %}
+                {% if editable.get(p.id) %}
+                <a class="btn btn-sm btn-outline-primary" href="/booking/{{ p.id }}/edit">修改</a>
+                {% endif %}
+                <a class="btn btn-sm btn-outline-secondary" href="/booking/{{ p.id }}">详情</a>
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="alert alert-secondary small mt-3" role="alert">
+  状态说明：
+  <strong>已暂停</strong>表示不会执行（新建的预约默认就是已暂停，点「启用」才开始）；
+  <strong>提交结果未知</strong>表示提交请求已发出但无法确认结果，与「预约失败」不是一回事 ——
+  这类预约不会自动重跑，需要你先在图书馆网站核实是否已有预约记录，再在详情页勾选「已核实」恢复。
+  为防重复预约，<strong>正在执行</strong>与<strong>结果未知</strong>的预约不能修改或删除。
+</div>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,486 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h1 class="h5 mb-3">座位目录</h1>
+
+{#
+  这里是整个功能的唯一前提：目录是「服务器返回过哪些座位」的记录，
+  不是「现在能不能约」的答案。这句话必须留在页面上，不能只写在文档里。
+#}
+<div class="alert alert-warning" role="alert">
+  <strong>目录 ≠ 可预约。</strong>
+  本页只记录「查询接口返回过这个座位」，以及它的真实区域 ID 与座位 ID。
+  某个座位出现在这里，<strong>不代表它当前可以预约</strong>；
+  能否下单仍然只由计划里的「已确认可预约状态组合」和运行时的实时查询决定。
+</div>
+
+<div class="row g-3">
+  <div class="col-12 col-lg-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-header">目录状态</div>
+      <div class="card-body">
+        {% if catalog_state %}
+        {% set tone = {'ok': 'success', 'partial': 'warning', 'failed': 'danger'}.get(catalog_state.last_status, 'secondary') %}
+        {% set imported = catalog_state.import %}
+        {% set import_tone = {'ok': 'success', 'failed': 'danger'}.get(imported.last_status, 'secondary') %}
+        <dl class="kv">
+          <dt>在线更新状态</dt>
+          <dd><span class="tone-badge tone-{{ tone }}">{{ catalog_state.status_label }}</span></dd>
+          <dt>最近一次在线成功更新</dt><dd class="mono">{{ catalog_state.last_ok_at or '—（从未在线更新成功过）' }}</dd>
+          <dt>最近一次在线尝试</dt><dd class="mono">{{ catalog_state.last_attempt_at or '—' }}</dd>
+          <dt>本地导入状态</dt>
+          <dd><span class="tone-badge tone-{{ import_tone }}">{{ imported.status_label }}</span></dd>
+          <dt>最近一次本地导入成功</dt><dd class="mono">{{ imported.last_import_at or '—（从未导入过）' }}</dd>
+          <dt>最近一次导入尝试</dt><dd class="mono">{{ imported.last_attempt_at or '—' }}</dd>
+          {% if imported.last_import_at %}
+          <dt>最近导入的区域</dt>
+          <dd>区域 {{ imported.last_regionid }}（{{ imported.last_seat_count }} 个座位）</dd>
+          {% endif %}
+          <dt>目录座位总数</dt><dd>{{ total_seats }}</dd>
+        </dl>
+        {% if catalog_state.last_message %}
+        <p class="text-muted small mb-0">在线更新：{{ catalog_state.last_message }}</p>
+        {% endif %}
+        {% if imported.last_message %}
+        <p class="text-muted small mb-0">本地导入：{{ imported.last_message }}</p>
+        {% endif %}
+        {# 目录数据可能完全来自本地导入。这时上面两行「在线」都还是「从未」，必须
+           说清楚数据是哪来的，否则看起来像「什么都没有」。 #}
+        {% if imported.last_import_at and not catalog_state.last_ok_at %}
+        <p class="text-muted small mb-0">
+          目录数据来自<strong>本地导入</strong>（最近一次：{{ imported.last_import_at }}），
+          <strong>尚未在线更新过</strong>——两者是不同来源，这里分开记录。
+        </p>
+        {% endif %}
+        {% else %}
+        <p class="text-muted mb-0">目录服务未启用。</p>
+        {% endif %}
+
+        <form method="post" action="/admin/catalog/refresh" class="action-row mt-3">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          {% if return_to %}<input type="hidden" name="return" value="{{ return_to }}">{% endif %}
+          {% if plan_id %}<input type="hidden" name="plan_id" value="{{ plan_id }}">{% endif %}
+          <button class="btn btn-sm btn-primary" type="submit">更新目录</button>
+          <span class="text-muted small ms-2">
+            对每个已登记的区域各发一次<strong>只读</strong>查询，不会提交任何预约。
+          </span>
+        </form>
+        <p class="text-muted small mt-2 mb-0">
+          更新失败时目录<strong>保持原样</strong>，上面仍会显示上次成功的时间与本次失败原因。
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-header">添加区域</div>
+      <div class="card-body">
+        <p class="text-muted small">
+          接口<strong>没有</strong>「区域列表」这一项，所以区域 ID 只能由人工提供。
+          你可以在浏览器里打开图书馆网站、按 F12 查看任意一个
+          <code>/stage-api/</code> 请求的 <code>regionid</code> 参数，把那个数字填在这里。
+        </p>
+        <form method="post" action="/admin/catalog/regions" class="row g-2 align-items-end">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          {% if return_to %}<input type="hidden" name="return" value="{{ return_to }}">{% endif %}
+          {% if plan_id %}<input type="hidden" name="plan_id" value="{{ plan_id }}">{% endif %}
+          <div class="col-8 col-sm-6">
+            <label class="form-label" for="new_regionid">区域 ID</label>
+            <input class="form-control" id="new_regionid" name="regionid" type="number" min="1" required
+                   placeholder="16">
+          </div>
+          <div class="col-auto">
+            <button class="btn btn-sm btn-outline-secondary" type="submit">添加并开始挑选</button>
+          </div>
+        </form>
+
+        <details class="mt-3">
+          <summary class="small text-muted">离线导入（粘贴一份查询响应 JSON）</summary>
+          <form method="post" action="/admin/catalog/import" class="mt-2">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+            {% if return_to %}<input type="hidden" name="return" value="{{ return_to }}">{% endif %}
+            {% if plan_id %}<input type="hidden" name="plan_id" value="{{ plan_id }}">{% endif %}
+            <div class="mb-2">
+              <label class="form-label" for="import_regionid">区域 ID（响应里没有这个字段，必须手填）</label>
+              <input class="form-control" id="import_regionid" name="regionid" type="number" min="1" required>
+            </div>
+            <div class="mb-2">
+              <label class="form-label" for="import_payload">响应 JSON</label>
+              <textarea class="form-control mono" id="import_payload" name="payload" rows="6"
+                        placeholder='{"layout": null, "seatList": [{"id": 2481, "seatName": "十层东书库北区 01桌 E座"}]}'></textarea>
+              <div class="form-text">
+                与 <code>query --from-file</code> 走同一套解析，纯本地解析，不访问网络。
+                导入同样会按「本次没出现的座位视为下线」处理该区域。
+              </div>
+            </div>
+            <button class="btn btn-sm btn-outline-secondary" type="submit">导入</button>
+          </form>
+        </details>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card shadow-sm mt-3">
+  <div class="card-header">区域</div>
+  <div class="card-body">
+    {% if view.regions %}
+    {# 按名字选区域：区域 ID 是接口参数，对人不友好；这里把它藏到 option 的 value 里。
+       名称的来源必须一并说出来——人工命名与「由座位名推断」的可信度不同。 #}
+    <form method="get" action="/admin/catalog" class="row g-2 align-items-end mb-3">
+      {% if return_to %}<input type="hidden" name="return" value="{{ return_to }}">{% endif %}
+      {% if plan_id %}<input type="hidden" name="plan_id" value="{{ plan_id }}">{% endif %}
+      <div class="col-12 col-sm-8">
+        <label class="form-label" for="catalog_region">按名字选区域（挑座位）</label>
+        <select class="form-select" id="catalog_region" name="region">
+          <option value=""{{ ' selected' if not view.regionid else '' }}>（不选区域：在所有区域里搜索）</option>
+          {% for r in view.regions %}
+          <option value="{{ r.regionid }}"{{ ' selected' if view.regionid == r.regionid else '' }}>
+            {{ r.region_label or '（尚未推断出名称）' }} · 区域 {{ r.regionid }} ——
+            {{ '人工命名' if r.label_source == 'manual' else '由座位名推断，非权威' }}
+          </option>
+          {% endfor %}
+        </select>
+        <div class="form-text">
+          接口<strong>不返回</strong>区域名：名称只有两种来源，人工命名（不会被更新覆盖），
+          或由座位名推断（<strong>非权威</strong>）。
+        </div>
+      </div>
+      <div class="col-auto">
+        <button class="btn btn-sm btn-outline-secondary" type="submit">挑选座位</button>
+      </div>
+    </form>
+
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead>
+          <tr>
+            <th>区域 ID</th><th>名称</th><th>座位</th><th>已下线</th><th>收藏</th>
+            <th>最近更新</th><th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in view.regions %}
+          <tr>
+            <td class="mono">{{ r.regionid }}</td>
+            <td>
+              {{ r.region_label or '（尚未推断出名称）' }}
+              {% if r.label_source == 'manual' %}
+              <span class="tone-badge tone-info" title="人工命名，不会被更新覆盖">人工命名</span>
+              {% else %}
+              <span class="text-muted small">由座位名推断，非权威</span>
+              {% endif %}
+              {% if r.duplicate_names %}
+              <div class="text-danger small">
+                有 {{ r.duplicate_names }} 组同名座位：按名称匹配的计划会同时命中它们。
+              </div>
+              {% endif %}
+            </td>
+            <td>{{ r.seat_count }}</td>
+            <td>{{ r.retired_count }}</td>
+            <td>{{ r.favorite_count }}</td>
+            <td class="mono small">{{ r.last_seen_at }}</td>
+            <td>
+              <div class="d-flex flex-wrap gap-2 align-items-center">
+                <a class="btn btn-sm btn-outline-secondary"
+                   href="/admin/catalog?region={{ r.regionid }}{% if return_to %}&amp;return={{ return_to }}{% endif %}{% if plan_id %}&amp;plan_id={{ plan_id }}{% endif %}">
+                  挑选座位
+                </a>
+                <form method="post" action="/admin/catalog/regions/{{ r.regionid }}/rename"
+                      class="d-flex gap-1">
+                  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                  <input class="form-control form-control-sm" name="region_label" maxlength="60"
+                         style="width: 9rem" aria-label="区域名称"
+                         placeholder="人工命名">
+                  <button class="btn btn-sm btn-outline-secondary" type="submit">改名</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="text-muted mb-0">
+      目录还是空的。请先在上面的「添加区域」里填一个真实的区域 ID ——
+      本程序<strong>不会</strong>预置任何区域 ID 或座位名。
+    </p>
+    {% endif %}
+  </div>
+</div>
+
+{% if view.picks %}
+<div class="card shadow-sm mt-3">
+  <div class="card-header">待选座位（共 {{ view.picks|length }} 个，顺序即优先级）</div>
+  <div class="card-body">
+    <p class="text-muted small">
+      这些座位会被自动填入计划表单的「指定座位」文本框（原有座位在前，这些按下面的顺序追加）。
+      这里用「上移 / 下移」排的就是<strong>程序尝试的顺序</strong>：排在前面先试，座位被占才试下一个。
+      最终以你在计划页看到的文本为准，你也可以在那里直接手改顺序。
+    </p>
+    <ol class="mb-3">
+      {% for p in view.picks %}
+      <li>
+        <span class="{{ 'text-muted' if not p.known else '' }}">{{ p.seat_name }}</span>
+        <span class="text-muted small">
+          （区域 {{ p.regionid }}{% if p.region_label %} {{ p.region_label }}{% endif %}）
+        </span>
+        {% if not p.known %}
+        <span class="tone-badge tone-warning">已不在目录中</span>
+        {% endif %}
+        {# 顺序即优先级：这里调的就是计划里的尝试顺序。两端禁用，越界移动在服务端是空操作。 #}
+        {% set is_first_pick = loop.first %}
+        {% set is_last_pick = loop.last %}
+        {% for direction, label in (('up', '上移'), ('down', '下移')) %}
+        <form method="post" action="/admin/catalog/picks/move" class="d-inline">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          <input type="hidden" name="regionid" value="{{ p.regionid }}">
+          <input type="hidden" name="seat_name" value="{{ p.seat_name }}">
+          <input type="hidden" name="direction" value="{{ direction }}">
+          {% if return_to %}<input type="hidden" name="return" value="{{ return_to }}">{% endif %}
+          {% if plan_id %}<input type="hidden" name="plan_id" value="{{ plan_id }}">{% endif %}
+          <button class="btn btn-sm btn-link p-0 align-baseline" type="submit"
+                  {% if (direction == 'up' and is_first_pick) or (direction == 'down' and is_last_pick) %}disabled{% endif %}>{{ label }}</button>
+        </form>
+        {% endfor %}
+        <form method="post" action="/admin/catalog/picks/remove" class="d-inline">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          <input type="hidden" name="regionid" value="{{ p.regionid }}">
+          <input type="hidden" name="seat_name" value="{{ p.seat_name }}">
+          {% if return_to %}<input type="hidden" name="return" value="{{ return_to }}">{% endif %}
+          {% if plan_id %}<input type="hidden" name="plan_id" value="{{ plan_id }}">{% endif %}
+          <button class="btn btn-sm btn-link p-0 align-baseline" type="submit">移出</button>
+        </form>
+      </li>
+      {% endfor %}
+    </ol>
+    {% if (view.picks | map(attribute='regionid') | unique | list | length) > 1 %}
+    <div class="alert alert-info py-2 mb-0" role="alert">
+      所选座位来自多个区域。计划的「区域 ID」是单个值，因此这里<strong>不会</strong>自动改写它，
+      请自行确认计划要用的区域。
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+{#
+  座位列表在两种情况下都要渲染：选中了某个区域，或者在做跨区域搜索。
+  只要 view.scoped（区域 / 关键词 / 只看收藏 三者任一）成立就显示——
+  否则「没选区域时搜索」会算出一堆结果却一个都不显示。
+#}
+{% if view.scoped %}
+<div class="card shadow-sm mt-3">
+  <div class="card-header">
+    {% if view.regionid %}
+      区域 {{ view.regionid }}
+      {% if view.region_label %}· {{ view.region_label }}{% endif %}
+    {% else %}
+      跨区域搜索结果{% if view.q %}「{{ view.q }}」{% endif %}
+      {%- if view.only_fav %}（只看收藏）{% endif %}
+    {% endif %}
+  </div>
+  <div class="card-body">
+
+    <form method="get" action="/admin/catalog" class="row g-2 align-items-end mb-3">
+      {% if view.regionid %}<input type="hidden" name="region" value="{{ view.regionid }}">{% endif %}
+      {% if view.only_fav %}<input type="hidden" name="fav" value="1">{% endif %}
+      {% if return_to %}<input type="hidden" name="return" value="{{ return_to }}">{% endif %}
+      {% if plan_id %}<input type="hidden" name="plan_id" value="{{ plan_id }}">{% endif %}
+      <div class="col-12 col-sm-5">
+        <label class="form-label" for="catalog_q">搜索座位号或名称</label>
+        <input class="form-control" id="catalog_q" name="q" value="{{ view.q }}"
+               placeholder="01桌 或 十层东书库北区">
+      </div>
+      {% if view.regionid %}
+      <div class="col-6 col-sm-4">
+        <label class="form-label" for="catalog_floor">楼层（由座位名推断，非权威）</label>
+        <select class="form-select" id="catalog_floor" name="floor">
+          <option value="">全部楼层</option>
+          {% for f in view.floors %}
+          <option value="{{ f.floor_label }}" {{ 'selected' if view.floor == f.floor_label else '' }}>
+            {{ f.floor_label }}（{{ f.seat_count }}）
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
+      <div class="col-auto">
+        <button class="btn btn-sm btn-outline-secondary" type="submit">筛选</button>
+        <a class="btn btn-sm btn-link"
+           href="/admin/catalog{% if view.regionid %}?region={{ view.regionid }}{% endif %}">重置</a>
+      </div>
+    </form>
+
+    {% if view.regionid %}
+    <p class="text-muted small">
+      楼层是<strong>从座位名推断</strong>出来的（如「十层东书库北区 01桌 E座」→「十层」），
+      接口并不返回楼层字段，因此它只是筛选参考，不是权威分组。
+    </p>
+    {% else %}
+    <p class="text-muted small">
+      没有选择区域，正在<strong>所有已登记的区域</strong>里搜索。
+      楼层筛选需要先选中一个区域（楼层是从各区域的座位名分别推断的）。
+      <a href="/admin/catalog">回到区域列表</a>
+    </p>
+    {% endif %}
+
+    {% if view.seats %}
+    <form method="post" action="/admin/catalog/picks">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      {% if view.regionid %}<input type="hidden" name="region" value="{{ view.regionid }}">{% endif %}
+      {% if view.only_fav %}<input type="hidden" name="fav" value="1">{% endif %}
+      <input type="hidden" name="floor" value="{{ view.floor }}">
+      <input type="hidden" name="q" value="{{ view.q }}">
+      {% if return_to %}<input type="hidden" name="return" value="{{ return_to }}">{% endif %}
+      {% if plan_id %}<input type="hidden" name="plan_id" value="{{ plan_id }}">{% endif %}
+
+      <div class="table-responsive">
+        <table class="table table-sm align-middle">
+          <thead>
+            <tr>
+              <th style="width: 3rem">选择</th>
+              {# 跨区域结果必须标出每个座位属于哪个区域，否则勾出来的东西无从核对 #}
+              {% if view.cross_region %}<th>区域</th>{% endif %}
+              <th>座位</th><th>座位 ID</th><th>楼层</th><th>收藏</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for s in view.seats %}
+            <tr>
+              <td>
+                <input class="form-check-input" type="checkbox" name="seat"
+                       id="seat_{{ s.regionid }}_{{ s.seat_id }}"
+                       value="{{ seat_key(s.regionid, s.seat_name) }}"
+                       {{ 'checked' if (s.regionid, s.seat_name) in view.picked else '' }}>
+              </td>
+              {% if view.cross_region %}
+              <td class="small">
+                {{ s.regionid }}
+                {% if s.region_label %}<span class="text-muted">{{ s.region_label }}</span>{% endif %}
+              </td>
+              {% endif %}
+              <td><label for="seat_{{ s.regionid }}_{{ s.seat_id }}">{{ s.seat_name }}</label></td>
+              <td class="mono small">{{ s.seat_id }}</td>
+              <td class="small">{{ s.floor_label or '—' }}</td>
+              <td class="small">
+                {% if (s.regionid, s.seat_name) in view.favorite_keys %}
+                <span class="tone-badge tone-info">已收藏</span>
+                {% else %}—{% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if view.truncated %}
+      <p class="text-warning small">
+        座位太多，只显示了前 {{ view.seat_limit }} 个。请用搜索或楼层筛选缩小范围后再挑选。
+      </p>
+      {% endif %}
+
+      <div class="action-row">
+        <button class="btn btn-primary" type="submit">应用选择</button>
+        <span class="text-muted small">
+          勾选=加入，取消勾选=移出（只影响本页显示范围内的座位，其他区域的已选保持不变）。
+        </span>
+      </div>
+    </form>
+    {% else %}
+    <p class="text-muted">
+      没有符合条件的座位。
+      {% if view.q or view.floor %}
+      换个关键词，或<a href="/admin/catalog{% if view.regionid %}?region={{ view.regionid }}{% endif %}">清除筛选</a>。
+      {% endif %}
+      {% if view.regionid and not total_seats %}
+      也可能是这个区域还没拉取过 —— 请点上面的「更新目录」。
+      {% endif %}
+    </p>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+<div class="card shadow-sm mt-3">
+  <div class="card-header">收藏</div>
+  <div class="card-body">
+    <p class="text-muted small">
+      收藏按「区域 + 座位名」保存，与计划里存座位名的方式一致，方便直接复用。
+      收藏<strong>不会</strong>让座位变可约。
+    </p>
+    {% if view.regionid and view.favorites %}
+    <p>
+      <a class="btn btn-sm btn-outline-secondary"
+         href="/admin/catalog?region={{ view.regionid }}&amp;fav=1{% if return_to %}&amp;return={{ return_to }}{% endif %}{% if plan_id %}&amp;plan_id={{ plan_id }}{% endif %}">
+        只看本区域收藏的座位
+      </a>
+    </p>
+    {% endif %}
+    {% if view.favorites %}
+    <ul class="mb-3">
+      {% for f in view.favorites %}
+      <li>
+        {{ f.seat_name }}
+        <span class="text-muted small">
+          （区域 {{ f.regionid }}{% if f.region_label %} {{ f.region_label }}{% endif %}）
+        </span>
+        {% if not f.known %}
+        <span class="tone-badge tone-warning">已不在目录中</span>
+        {% endif %}
+        <form method="post" action="/admin/catalog/favorites/delete" class="d-inline">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          <input type="hidden" name="regionid" value="{{ f.regionid }}">
+          <input type="hidden" name="seat_name" value="{{ f.seat_name }}">
+          {% if return_to %}<input type="hidden" name="return" value="{{ return_to }}">{% endif %}
+          {% if plan_id %}<input type="hidden" name="plan_id" value="{{ plan_id }}">{% endif %}
+          <button class="btn btn-sm btn-link p-0 align-baseline" type="submit">取消收藏</button>
+        </form>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="text-muted">还没有收藏的座位。</p>
+    {% endif %}
+
+    {% if view.regionid and view.seats %}
+    <form method="post" action="/admin/catalog/favorites" class="row g-2 align-items-end">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <input type="hidden" name="regionid" value="{{ view.regionid }}">
+      {% if return_to %}<input type="hidden" name="return" value="{{ return_to }}">{% endif %}
+      {% if plan_id %}<input type="hidden" name="plan_id" value="{{ plan_id }}">{% endif %}
+      <div class="col-12 col-sm-6">
+        <label class="form-label" for="fav_seat">收藏本区域的一个座位</label>
+        <select class="form-select" id="fav_seat" name="seat_name">
+          {% for s in view.seats %}
+          <option value="{{ s.seat_name }}">{{ s.seat_name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-auto">
+        <button class="btn btn-sm btn-outline-secondary" type="submit">加入收藏</button>
+      </div>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+{% if view.picks %}
+<div class="action-row mt-3 mb-5">
+  {# 与用户端同一条防线：没有确切的计划编号时不能拼出 ``/admin/plans/None/edit``。 #}
+  {% set editing_plan = plan_id if return_to == 'plan_edit' and plan_id else None %}
+  <a class="btn btn-primary"
+     href="{{ ('/admin/plans/' ~ editing_plan ~ '/edit') if editing_plan else '/admin/plans/new' }}">
+    带着这 {{ view.picks|length }} 个座位去{{ '修改计划' if editing_plan else '创建计划' }}
+  </a>
+  <form method="post" action="/admin/catalog/picks/clear" class="d-inline">
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    {% if return_to %}<input type="hidden" name="return" value="{{ return_to }}">{% endif %}
+    {% if plan_id %}<input type="hidden" name="plan_id" value="{{ plan_id }}">{% endif %}
+    <button class="btn btn-outline-secondary" type="submit">清空选择</button>
+  </form>
+</div>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <title>{{ title }} · 座位预约助手（用户端）</title>
+  {# 与 /admin 用**同一套**样式：同一个 Bootstrap 版本 + 同一份 app.css。
+     用户端不引入任何前端框架、也没有自己的构建步骤。 #}
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="{{ url_for('static', path='app.css') }}">
+  {% block head %}{% endblock %}
+</head>
+<body class="bg-body-tertiary">
+<nav class="navbar navbar-expand-lg bg-primary navbar-dark mb-3">
+  <div class="container-fluid">
+    <a class="navbar-brand" href="/booking">座位预约助手 · 用户端</a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#bookingnav"
+            aria-controls="bookingnav" aria-expanded="false" aria-label="切换导航">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="bookingnav">
+      <ul class="navbar-nav me-auto">
+        {% if user %}
+        <li class="nav-item">
+          <a class="nav-link{{ ' active' if request.url.path == '/booking' else '' }}"
+             href="/booking" {{ 'aria-current="page"' if request.url.path == '/booking' else '' }}>我的预约</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link{{ ' active' if request.url.path == '/booking/new' else '' }}"
+             href="/booking/new">新建预约</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link{{ ' active' if request.url.path == '/booking/catalog' else '' }}"
+             href="/booking/catalog">座位目录</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link{{ ' active' if request.url.path == '/booking/bind' else '' }}"
+             href="/booking/bind">绑定图书馆账号</a>
+        </li>
+        {% endif %}
+      </ul>
+      {% if user %}
+      {# 身份显示在这里。**不放**任何指向管理端的链接：用户端不是管理端的入口。 #}
+      <div class="d-flex align-items-center gap-2 text-white">
+        <span class="small">已登录：<strong>{{ user.display_name or user.username }}</strong></span>
+        <form method="post" action="/booking/logout" class="m-0">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          <button class="btn btn-sm btn-outline-light" type="submit">退出</button>
+        </form>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</nav>
+
+<div class="container-fluid px-3 pb-5">
+
+  {# 用户端**有自己的账号体系**：每个用户只看得到、也只改得动自己的预约；
+     执行时用的是**他本人**绑定的学校凭据。这里如实写明，不含糊。 #}
+  {% if user %}
+  <div class="alert alert-secondary py-2 small" role="alert">
+    <strong>这是你自己的页面：</strong>只显示你用账号 {{ user.username }} 建立的预约，
+    执行时使用<strong>你本人绑定的图书馆账号</strong>
+    {%- if cred and cred.bound %}（{{ cred.school_username }}）{% else %}（尚未绑定，见「绑定图书馆账号」）{% endif %}。
+    你的凭据加密后单独保存，页面与日志里都不显示它们。
+  </div>
+  {% endif %}
+
+  {% if cred and cred.bound and cred.status != 'valid' %}
+  <div class="alert {{ 'alert-danger' if cred.status == 'invalid' else 'alert-warning' }}" role="alert">
+    {% if cred.status == 'invalid' %}
+      <strong>你绑定的图书馆账号登录已失效：</strong>你的预约不会被执行（不会改用别人的账号）。
+      请点「绑定图书馆账号」重新登录一次。
+    {% else %}
+      <strong>凭据状态待确认：</strong>上一次只读探测没能确认它是否有效
+      （这可能只是网络问题）。可以点「重新验证」再试一次。
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if not real_booking_enabled %}
+  <div class="alert alert-warning py-2 small" role="alert">
+    真实预约总开关当前为关闭状态：程序不会提交任何预约（只读查询不受影响）。
+  </div>
+  {% endif %}
+
+  {% if flash %}
+  <div class="alert {{ 'alert-success' if flash_ok else 'alert-danger' }} alert-dismissible fade show" role="alert">
+    {{ flash }}
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="关闭"></button>
+  </div>
+  {% endif %}
+
+  {% block content %}{% endblock %}
+
+  <footer class="text-center text-muted small mt-4">
+    haut-seat-helper v{{ version }} · 用户端 · 页面上不会显示任何凭据
+  </footer>
+</div>
+
+{# 与 /admin 共用同一个本地脚本：模式切换、危险操作确认、导航折叠都在里面。
+   它不读 localStorage / cookie，也不发起任何请求。 #}
+<script src="{{ url_for('static', path='app.js') }}"></script>
+</body>
+</html>

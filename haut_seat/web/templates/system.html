@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h1 class="h5 mb-3">系统状态</h1>
+
+{# 认证的紧凑入口：这里**不做整页复制**，只给一行状态 + 一行来源 + 一个入口链接。
+   页面的详细内容（来源卡片、一键人工登录、失败原因、认证事件）都在 /admin/auth。 #}
+{% if auth_view %}
+<div class="card shadow-sm mb-3">
+  <div class="card-body py-3">
+    <p class="mb-2">
+      <span class="tone-badge tone-{{ {'valid': 'success', 'invalid': 'danger'}.get(auth_view.status, 'warning') }}">
+        {{ auth_view.status_label }}</span>
+      <span class="tone-badge tone-secondary">{{ auth_view.credential_source_label }}</span>
+      {% if auth_view.snapshot_captured_at %}
+      <span class="text-muted small ms-1">快照采集于 {{ auth_view.snapshot_captured_at }}</span>
+      {% endif %}
+      {% if auth_view.blocks_submissions %}
+      <span class="ms-1 text-danger small">
+        管理端自建计划（及无归属的历史计划）的新提交已停止，需要人工更新凭据；
+        用户端计划按各自用户绑定的账号状态单独判定。
+      </span>
+      {% endif %}
+    </p>
+    <div class="action-row">
+      <a class="btn btn-sm btn-outline-primary" href="/admin/auth">前往认证状态页</a>
+      {% if auth_view.browser_automation_supported %}
+      <form method="post" action="/admin/auth/login-browser"
+            data-confirm="将在服务器桌面打开浏览器窗口，需要你手动完成登录（含验证码）。确定继续？">
+        <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+        <button class="btn btn-sm btn-outline-secondary" type="submit">打开登录浏览器</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<div class="row g-3">
+  <div class="col-12 col-lg-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-header">全局开关</div>
+      <div class="card-body">
+        <p class="text-muted small">
+          <strong>全局暂停</strong>开启时，调度器不会启动任何新运行，正在飞行的请求也不会被强行中断
+          （强行中断只会制造「结果未知」）。
+        </p>
+        <dl class="kv">
+          <dt>全局暂停</dt>
+          <dd>
+            <span class="tone-badge tone-{{ 'danger' if app_setting.global_pause else 'success' }}">
+              {{ '已开启（不启动新运行）' if app_setting.global_pause else '已关闭' }}
+            </span>
+          </dd>
+          <dt>调度器开关（数据库）</dt>
+          <dd>
+            <span class="tone-badge tone-{{ 'success' if app_setting.scheduler_enabled else 'secondary' }}">
+              {{ '已启用' if app_setting.scheduler_enabled else '已停用' }}
+            </span>
+          </dd>
+          <dt>配置中的调度器</dt>
+          <dd>
+            <span class="tone-badge tone-{{ 'success' if scheduler_status else 'warning' }}">
+              {{ '已加载' if scheduler_status else '未启用（HAUT_WEB_ENABLE_SCHEDULER=false）' }}
+            </span>
+          </dd>
+          <dt>最近更新</dt><dd class="mono">{{ app_setting.updated_at or '—' }}</dd>
+        </dl>
+        <form method="post" action="/admin/system/toggle" class="action-row mt-3">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          <input type="hidden" name="global_pause" value="{{ '0' if app_setting.global_pause else '1' }}">
+          <button class="btn btn-sm btn-{{ 'success' if app_setting.global_pause else 'outline-danger' }}"
+                  type="submit"
+                  data-confirm="{{ '确定关闭全局暂停？之后到点的计划会真正发起预约提交。' if app_setting.global_pause else '' }}">
+            {{ '关闭全局暂停（允许执行）' if app_setting.global_pause else '开启全局暂停（全部停止）' }}
+          </button>
+        </form>
+        <form method="post" action="/admin/system/toggle" class="action-row mt-2">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          <input type="hidden" name="scheduler_enabled" value="{{ '0' if app_setting.scheduler_enabled else '1' }}">
+          <button class="btn btn-sm btn-outline-secondary" type="submit">
+            {{ '停用调度器' if app_setting.scheduler_enabled else '启用调度器' }}
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-header">调度器</div>
+      <div class="card-body">
+        {% if scheduler_status %}
+        <dl class="kv mb-0">
+          <dt>运行状态</dt>
+          <dd>
+            <span class="tone-badge tone-{{ 'success' if scheduler_status.running else 'danger' }}">
+              {{ '后台线程运行中' if scheduler_status.running else '已停止' }}
+            </span>
+          </dd>
+          <dt>轮询间隔</dt><dd>{{ scheduler_status.tick_s }} 秒</dd>
+          <dt>最大并发</dt><dd>{{ scheduler_status.max_concurrent }}</dd>
+          <dt>正在执行的计划</dt>
+          <dd>{{ scheduler_status.active_plans if scheduler_status.active_plans else '无' }}</dd>
+          <dt>最近一次检查</dt><dd class="mono">{{ scheduler_status.last_tick_at or '—' }}</dd>
+          <dt>累计轮询次数</dt><dd>{{ scheduler_status.tick_count }}</dd>
+          <dt>最近错误</dt><dd>{{ scheduler_status.last_error or '无' }}</dd>
+        </dl>
+        <p class="text-muted small mt-3 mb-0">
+          调度器运行在独立的后台线程中，关闭浏览器或刷新页面都不影响已启动的运行。
+          同一条计划不会被并发执行。
+        </p>
+        {% else %}
+        <p class="text-muted mb-0">
+          当前进程未启用调度器。计划不会自动执行，只能通过计划页的「立即执行」手动触发。
+        </p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-header">数据与账号</div>
+      <div class="card-body">
+        <dl class="kv mb-0">
+          <dt>数据库文件</dt><dd class="mono">{{ db_path }}</dd>
+          <dt>管理员数量</dt><dd>{{ admin_count }}</dd>
+          <dt>计划总数</dt><dd>{{ stats.plans_total }}</dd>
+          <dt>今日运行次数</dt><dd>{{ stats.runs_today }}</dd>
+          <dt>结果未知的运行</dt><dd>{{ stats.runs_unknown }}</dd>
+          <dt>当前运行中</dt><dd>{{ stats.runs_running }}</dd>
+        </dl>
+        <p class="text-muted small mt-3 mb-0">
+          备份就是复制上面这个数据库文件（连同 <code>-wal</code> / <code>-shm</code> 一起，
+          或先停服务再复制）。恢复时用备份文件覆盖即可。
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-header">维护</div>
+      <div class="card-body">
+        <p class="text-muted small">
+          清理动作只会删除过期会话、过期登录记录与超过保留期的运行日志，
+          <strong>不会</strong>删除计划、不会改变任何计划状态、也不会重放任何提交。
+        </p>
+        <form method="post" action="/admin/system/maintenance"
+              data-confirm="将清理过期会话、旧登录记录和超期运行日志。确定继续？">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          <button class="btn btn-sm btn-outline-secondary" type="submit">立即清理过期数据</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

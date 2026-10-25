@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-12 col-md-6 col-lg-5">
+    <div class="alert alert-warning" role="alert">
+      <strong>仅在你自己的服务器上、且尚未对外开放该端口时使用本页。</strong>
+      创建完成后本页会自动失效；后续如需修改口令，请使用命令行工具。
+    </div>
+    <div class="card shadow-sm">
+      <div class="card-header">创建初始管理员</div>
+      <div class="card-body">
+        <form method="post" action="/admin/setup" autocomplete="off">
+          <input type="hidden" name="_setup_token" value="{{ setup_token }}">
+          <div class="mb-3">
+            <label class="form-label" for="username">用户名</label>
+            <input class="form-control" id="username" name="username" required maxlength="64"
+                   autocapitalize="off" spellcheck="false">
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="password">口令（至少 10 位）</label>
+            <input class="form-control" id="password" name="password" type="password" required
+                   minlength="10" autocomplete="new-password">
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="password_confirm">确认口令</label>
+            <input class="form-control" id="password_confirm" name="password_confirm" type="password"
+                   required minlength="10" autocomplete="new-password">
+          </div>
+          <button class="btn btn-primary w-100" type="submit">创建并前往登录</button>
+        </form>
+        <p class="text-muted small mt-3 mb-0">
+          也可以在服务器上执行：
+          <code>python -m haut_seat create-admin --username 你的用户名</code>
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

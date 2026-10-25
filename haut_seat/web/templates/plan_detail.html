@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+  <div>
+    <h1 class="h5 mb-1">{{ plan.name }}</h1>
+    <div>
+      {{ m.plan_badge(plan.status) }}
+      {# 来源：这条计划是管理端自己建的，还是用户端提交上来的。
+         管理端是统一数据入口，因此「谁建的」必须一眼可见。 #}
+      <span class="tone-badge tone-{{ 'dark' if origin == '用户端' else 'secondary' }}">来源：{{ origin }}</span>
+      {# 所属用户：启用这条计划后，提交用的是**这个人**绑定的学校凭据。
+         凭据失效时只有他自己的计划会停下来 —— 这一点必须在详情页说得清楚。 #}
+      {% if plan_owner %}
+        <span class="tone-badge tone-info">所属用户：{{ plan_owner.username }}</span>
+        <span class="tone-badge tone-{{ plan_owner.cred_tone }}">图书馆账号：{{ plan_owner.cred_label }}</span>
+      {% else %}
+        <span class="tone-badge tone-secondary">所属用户：—（管理端账号）</span>
+      {% endif %}
+      {% if plan.stop_requested %}<span class="tone-badge tone-warning">已登记停止（本轮结束后生效）</span>{% endif %}
+      {% if plan.pause_requested %}<span class="tone-badge tone-warning">已登记暂停（本轮结束后生效）</span>{% endif %}
+    </div>
+  </div>
+  <div class="action-row">
+    {% if plan.status.value == 'running' %}
+      {{ m.action_button('pause', plan, '暂停（本轮后生效）', 'outline-warning', '不再启动新的运行；正在提交的请求不会被中断。') }}
+      {{ m.action_button('stop', plan, '停止（本轮后生效）', 'outline-danger', '不再发起新的提交；正在飞行的请求不会被中断。') }}
+    {% elif plan.status.value == 'pending' %}
+      {{ m.action_button('pause', plan, '暂停', 'outline-warning') }}
+      {{ m.action_button('stop', plan, '停止', 'outline-secondary', '确定停止该计划？停止后不会自动恢复。') }}
+      {{ m.action_button('run', plan, '立即执行', 'primary', '将立即在后台线程发起一次抢约（真实提交）。确定继续？') }}
+    {% else %}
+      {{ m.action_button('resume', plan, '启用/恢复', 'success') }}
+      {{ m.action_button('stop', plan, '停止', 'outline-secondary') }}
+    {% endif %}
+    <a class="btn btn-sm btn-outline-primary" href="/admin/plans/{{ plan.id }}/edit">编辑</a>
+    {{ m.action_button('delete', plan, '删除', 'outline-danger', '确定删除该计划及其运行记录？此操作不可撤销。') }}
+  </div>
+</div>
+
+{% if plan.status.value == 'unknown' %}
+<div class="alert alert-dark" role="alert">
+  <strong>提交结果未知</strong>：上一次提交请求已发出，但无法确认服务器是否已受理。
+  这<strong>不是</strong>普通失败。<br>
+  请先登录图书馆网站查看该时段是否已有预约记录；确认后勾选下方选项再点「启用/恢复」。
+  <form method="post" action="/admin/plans/{{ plan.id }}/resume" class="mt-3">
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <div class="form-check mb-2">
+      <input class="form-check-input" type="checkbox" name="acknowledge_unknown" value="1" id="ack_unknown" required>
+      <label class="form-check-label" for="ack_unknown">
+        我已在图书馆网站核实该时段的预约记录，确认可以重新执行
+      </label>
+    </div>
+    <button class="btn btn-dark btn-sm" type="submit">恢复为待执行</button>
+  </form>
+</div>
+{% endif %}
+
+<div class="row g-3">
+  <div class="col-12 col-lg-6">
+    {# 先讲人话：什么时候执行、坐哪个时段、怎么挑座位。
+       原始字段（trigger_at / book_start 的完整时间戳 / 状态组合 JSON）原值保留，
+       只是收进下面的折叠区 —— 不隐藏、也不静默改写。 #}
+    <div class="card shadow-sm h-100">
+      <div class="card-header">这个预约什么时候执行</div>
+      <div class="card-body">
+        <dl class="kv mb-0">
+          <dt>什么时候执行</dt><dd>{{ when_label }}</dd>
+          <dt>座位时段</dt>
+          <dd class="mono">
+            {% if seat_window[0] and seat_window[1] %}{{ seat_window[0] }}–{{ seat_window[1] }}
+            {% else %}<span class="text-muted">时间不合法</span>{% endif %}
+          </dd>
+          <dt>多久一次</dt><dd>{{ repeat_labels.get(plan.repeat_rule, plan.repeat_rule) }}</dd>
+          <dt>执行日期</dt><dd class="mono">{{ plan.run_date }}</dd>
+          <dt>区域</dt><dd>{{ plan.regionid }}<span class="text-muted small">（图书馆的区域 ID）</span></dd>
+          <dt>候选座位</dt>
+          <dd>
+            {% if plan.preferred_seats %}
+              <ol class="mb-0 ps-3">{% for s in plan.preferred_seats %}<li>{{ s }}</li>{% endfor %}</ol>
+            {% elif plan.preferred_prefixes %}
+              {{ plan.preferred_prefixes|join('、') }}<span class="text-muted small">（按名称前缀匹配）</span>
+            {% else %}
+              <span class="text-muted">未指定：会用该区域的全部座位，按名称排序</span>
+            {% endif %}
+          </dd>
+          <dt>备注</dt><dd>{{ plan.note or '—' }}</dd>
+        </dl>
+
+        <details class="mt-3">
+          <summary class="text-muted small" style="cursor: pointer">显示原始参数（程序真正使用的值）</summary>
+          <dl class="kv mb-0 mt-2">
+            <dt>触发时刻</dt><dd class="mono">{{ plan.trigger_at }}</dd>
+            <dt>预约时段</dt><dd class="mono">{{ plan.book_start }} → {{ plan.book_end }}</dd>
+            <dt>名称前缀</dt>
+            <dd>{% if plan.preferred_prefixes %}{{ plan.preferred_prefixes|join('、') }}{% else %}<span class="text-muted">未指定</span>{% endif %}</dd>
+            <dt>可预约状态组合</dt><dd class="mono">{{ combos_text }}</dd>
+            <dt>单座位尝试次数</dt><dd>{{ plan.max_attempts_per_seat }}</dd>
+            <dt>已启用</dt><dd>{{ '是' if plan.enabled else '否' }}</dd>
+            <dt>未知已核实</dt><dd>{{ plan.unknown_ack_at or '—' }}</dd>
+            <dt>创建 / 更新</dt><dd class="mono">{{ plan.created_at }}<br>{{ plan.updated_at }}</dd>
+          </dl>
+        </details>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span>运行记录</span>
+        <a class="btn btn-sm btn-outline-secondary" href="/admin/runs?plan_id={{ plan.id }}">只看该计划</a>
+      </div>
+      <div class="card-body">
+        {# 最近一次的关键结论（结果 / 提交编号 / 耗时 / 失败或未知原因）单独摆在最上面：
+           列表页与运行记录页都会显示这些，详情页更不该只给一张需要自己推算的表。 #}
+        {% if last_run %}
+        <dl class="kv mb-3">
+          <dt>最近一次</dt>
+          <dd>
+            运行 #{{ last_run.id }} {{ m.run_badge(last_run.status) }}
+            {% if last_run.category %}{{ m.err_badge(last_run.category) }}{% endif %}
+          </dd>
+          <dt>开始 / 结束</dt>
+          <dd class="mono small">{{ last_run.started_at }}<br>{{ last_run.finished_at or '（尚未结束）' }}</dd>
+          <dt>耗时</dt><dd>{{ run_duration_text(last_run) }}</dd>
+          <dt>提交结果 / 预约编号</dt>
+          <dd>
+            {% if last_run.booking_id %}
+              <span class="mono">{{ last_run.booking_id }}</span>
+            {% elif last_run.status.value == 'succeeded' %}
+              <span class="text-muted">已成功，但接口没有返回预约编号</span>
+            {% else %}
+              <span class="text-muted">—（提交 {{ last_run.submit_count }} 次）</span>
+            {% endif %}
+          </dd>
+          <dt>失败 / 未知原因</dt>
+          <dd>{% if last_run.message %}{{ last_run.message }}{% else %}<span class="text-muted">—</span>{% endif %}</dd>
+        </dl>
+        {% endif %}
+
+        {% if runs %}
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead><tr><th>运行</th><th>结果</th><th>错误分类</th><th>开始</th><th>耗时</th><th>提交</th><th>预约编号</th></tr></thead>
+            <tbody>
+            {% for r in runs %}
+              <tr>
+                <td><a href="/admin/runs/{{ r.id }}">#{{ r.id }}</a></td>
+                <td>{{ m.run_badge(r.status) }}</td>
+                <td>{{ m.err_badge(r.category) }}</td>
+                <td class="mono small">{{ r.started_at }}</td>
+                <td class="small">{{ run_duration_text(r) }}</td>
+                <td>{{ r.submit_count }}</td>
+                <td class="mono small">{{ r.booking_id or '—' }}</td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <p class="text-muted mb-0">该预约还没有执行过。启用后到点会由后台调度自动执行。</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="action-row mt-3">
+  <a class="btn btn-sm btn-outline-secondary" href="/admin">← 返回我的预约</a>
+  <a class="btn btn-sm btn-outline-secondary" href="/admin/plans">原始表格</a>
+</div>
+
+{% endblock %}

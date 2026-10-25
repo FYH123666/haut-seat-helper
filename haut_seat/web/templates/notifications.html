@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h1 class="h5 mb-3">通知设置</h1>
+
+<div class="alert alert-warning" role="alert">
+  <strong>本轮仅预留接口与设置模型，邮件发送尚未实现。</strong>
+  下面的设置可以保存，但<strong>不会真正发出任何邮件</strong>；
+  通知事件也不会被投递到外部服务。请勿把这里的开关当成「已生效的告警」。
+</div>
+
+<form method="post" action="/admin/notifications">
+  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+
+  <div class="card shadow-sm mb-3">
+    <div class="card-header">事件开关</div>
+    <div class="card-body">
+      <p class="text-muted small">
+        勾选的事件在触发时会被登记（若发送功能实现后会用于发信）。
+        任何通知失败都不会影响预约任务本身。
+      </p>
+      <div class="row">
+        {% for e in events %}
+        <div class="col-12 col-md-6">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="flag_{{ e.value }}" value="1"
+                   id="flag_{{ e.value }}" {{ 'checked' if flags.get(e.value) else '' }}>
+            <label class="form-check-label" for="flag_{{ e.value }}">
+              {{ event_labels.get(e, e.value) }}
+              <span class="text-muted small mono">{{ e.value }}</span>
+            </label>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <div class="card shadow-sm mb-3">
+    <div class="card-header">邮件通道（预留，未实现发送）</div>
+    <div class="card-body row g-3">
+      <div class="col-12">
+        <div class="form-check form-switch">
+          <input class="form-check-input" type="checkbox" role="switch" id="enabled" name="enabled"
+                 value="1" {{ 'checked' if setting.get('enabled') else '' }}>
+          <label class="form-check-label" for="enabled">启用通知（保存后仍不会发信）</label>
+        </div>
+      </div>
+      <div class="col-12 col-md-6">
+        <label class="form-label" for="smtp_host">SMTP 服务器</label>
+        <input class="form-control" id="smtp_host" name="smtp_host"
+               value="{{ setting.get('smtp_host', '') }}" placeholder="smtp.example.com">
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label" for="smtp_port">端口</label>
+        <input class="form-control" id="smtp_port" name="smtp_port" type="number" min="1" max="65535"
+               value="{{ setting.get('smtp_port', 465) }}">
+      </div>
+      <div class="col-6 col-md-3 d-flex align-items-end">
+        <div class="form-check form-switch">
+          <input class="form-check-input" type="checkbox" role="switch" id="use_tls" name="use_tls"
+                 value="1" {{ 'checked' if setting.get('use_tls') else '' }}>
+          <label class="form-check-label" for="use_tls">使用 TLS</label>
+        </div>
+      </div>
+      <div class="col-12 col-md-6">
+        <label class="form-label" for="smtp_user">SMTP 用户名</label>
+        <input class="form-control" id="smtp_user" name="smtp_user"
+               value="{{ setting.get('smtp_user', '') }}">
+      </div>
+      <div class="col-12 col-md-6">
+        <label class="form-label" for="smtp_password_env">口令所在的环境变量名</label>
+        <input class="form-control mono" id="smtp_password_env" name="smtp_password_env"
+               value="{{ setting.get('smtp_password_env', 'HAUT_SMTP_PASSWORD') }}">
+        <div class="form-text">
+          这里<strong>只填写变量名，不填写口令本身</strong>。本页面不接收、不保存、不回显任何邮件口令。
+        </div>
+      </div>
+      <div class="col-12 col-md-6">
+        <label class="form-label" for="mail_from">发件人</label>
+        <input class="form-control" id="mail_from" name="mail_from"
+               value="{{ setting.get('mail_from', '') }}">
+      </div>
+      <div class="col-12 col-md-6">
+        <label class="form-label" for="mail_to">收件人（多个用逗号分隔）</label>
+        <input class="form-control" id="mail_to" name="mail_to"
+               value="{{ setting.get('mail_to', '') }}">
+      </div>
+    </div>
+  </div>
+
+  <div class="action-row mb-3">
+    <button class="btn btn-primary" type="submit">保存设置</button>
+  </div>
+</form>
+
+<div class="card shadow-sm">
+  <div class="card-header">通知历史（含被跳过的事件与原因）</div>
+  <div class="card-body">
+    {% if history %}
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead><tr><th>时间</th><th>事件</th><th>计划</th><th>运行</th>
+                   <th>状态</th><th>尝试</th><th>说明</th></tr></thead>
+        <tbody>
+        {% for h in history %}
+          <tr>
+            <td class="mono">{{ h.at }}</td>
+            <td>{{ h.event }}</td>
+            <td>{{ h.plan_id or '—' }}</td>
+            <td>{% if h.run_id %}<a href="/admin/runs/{{ h.run_id }}">#{{ h.run_id }}</a>{% else %}—{% endif %}</td>
+            <td>
+              <span class="tone-badge tone-{{ 'success' if h.status == 'sent' else ('danger' if h.status == 'failed' else 'secondary') }}">
+                {{ h.status }}
+              </span>
+            </td>
+            <td>{{ h.attempts }}</td>
+            <td class="small text-truncate" style="max-width: 22rem;">{{ h.last_error or h.message }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="text-muted mb-0">还没有通知记录。本轮不会真正发信，因此这里只会出现「skipped（未实现）」之类的记录。</p>
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}

@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block content %}
+
+<h1 class="h5 mb-3">用户（用户端账号）</h1>
+
+<div class="alert alert-secondary small" role="alert">
+  用户端（<code>/booking</code>）有<strong>自己的账号体系</strong>：每个用户用自己的平台账号登录，
+  绑定<strong>自己</strong>的图书馆账号，只看得到、也只改得动自己的预约。
+  用户的学校凭据<strong>加密后单独保存</strong>，这一页只显示标识与状态
+  （学校账号、有效性、指纹前缀），<strong>不显示任何凭据值</strong> ——
+  页面上拿到的数据里根本没有 Cookie / Authorization 字段。
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-12 col-lg-7">
+    <div class="card shadow-sm h-100">
+      <div class="card-header">注册入口</div>
+      <div class="card-body">
+        <dl class="kv mb-2">
+          <dt>自助注册</dt>
+          <dd>
+            {% if signup_enabled %}
+              <span class="tone-badge tone-success">开放</span>
+            {% else %}
+              <span class="tone-badge tone-muted">关闭</span>
+              <span class="text-muted small ms-1">（已登录的用户不受影响）</span>
+            {% endif %}
+          </dd>
+          <dt>邀请码</dt>
+          <dd>
+            {% if invite_code %}
+              <span class="mono">{{ invite_code }}</span>
+            {% else %}
+              <span class="text-muted">尚未生成 —— 没有邀请码时谁也无法注册</span>
+            {% endif %}
+          </dd>
+        </dl>
+        <p class="text-muted small">
+          邀请码只决定"能不能注册"，不是凭据，因此可以显示、也可以随时更换；
+          换掉之后旧码立即失效。已注册用户的登录不受影响。
+        </p>
+        <div class="action-row">
+          <form method="post" action="/admin/users/invite"
+                data-confirm="生成新的邀请码会让旧码立即失效。确定继续？">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+            <button class="btn btn-sm btn-outline-primary" type="submit">
+              {{ '更换邀请码' if invite_code else '生成邀请码' }}
+            </button>
+          </form>
+          <form method="post" action="/admin/users/signup">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+            <input type="hidden" name="signup_enabled" value="{{ '0' if signup_enabled else '1' }}">
+            <button class="btn btn-sm btn-outline-secondary" type="submit">
+              {{ '关闭自助注册' if signup_enabled else '开启自助注册' }}
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-5">
+    <div class="card shadow-sm h-100">
+      <div class="card-header">用户端与管理员是两套账号</div>
+      <div class="card-body">
+        <p class="text-muted small mb-2">
+          这一页的用户<strong>不是</strong>管理员：他们登录不了 <code>/admin</code>，
+          也看不到任何全局开关。这里的停用 / 删除 / 重置口令只作用于用户端账号，
+          <strong>不会</strong>锁住你自己的管理员账号。
+        </p>
+        <p class="text-muted small mb-0">
+          用户口令只存 <code>scrypt</code> 哈希，重置后其全部会话立即作废；
+          学校口令从不落盘 —— 用户绑定图书馆账号时提交的口令只在那一次请求的内存里存在。
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card shadow-sm">
+  <div class="card-header">用户列表（{{ users | length }} 人）</div>
+  <div class="card-body">
+    {% if not users %}
+    <p class="text-muted mb-0">还没有任何用户端账号。</p>
+    {% else %}
+    <div class="table-responsive">
+      <table class="table table-sm align-middle">
+        <thead>
+          <tr>
+            <th>#</th><th>用户名</th><th>状态</th><th>计划</th>
+            <th>绑定的图书馆账号</th><th>凭据</th><th>注册时间</th><th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for u in users %}
+          <tr>
+            <td>{{ u.id }}</td>
+            <td>
+              <span class="mono">{{ u.username }}</span>
+              {% if u.display_name %}<div class="text-muted small">{{ u.display_name }}</div>{% endif %}
+            </td>
+            <td>
+              {% if u.status == 'active' %}
+                <span class="tone-badge tone-success">正常</span>
+              {% else %}
+                <span class="tone-badge tone-danger">已停用</span>
+              {% endif %}
+            </td>
+            <td>{{ u.plan_count }}</td>
+            <td>
+              {% if u.school_username %}
+                <span class="mono">{{ u.school_username }}</span>
+              {% else %}
+                <span class="text-muted">未绑定</span>
+              {% endif %}
+            </td>
+            {# 只有状态、指纹前缀与绑定时间 —— 没有、也不可能有凭据值。 #}
+            <td class="small">
+              <span class="tone-badge tone-{{ cred_tones.get(u.cred_status, 'muted') }}">
+                {{ cred_labels.get(u.cred_status, '未绑定') }}</span>
+              {% if u.cred_fingerprint %}
+                <br><span class="text-muted mono">{{ u.cred_fingerprint }}</span>
+              {% endif %}
+              {% if u.cred_captured_at %}
+                <br><span class="text-muted">{{ u.cred_captured_at }}</span>
+              {% endif %}
+            </td>
+            <td class="small text-muted">{{ u.created_at }}</td>
+            <td>
+              <div class="action-row">
+                <form method="post" action="/admin/users/{{ u.id }}/status">
+                  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                  <input type="hidden" name="status" value="{{ 'disabled' if u.status == 'active' else 'active' }}">
+                  <button class="btn btn-sm btn-outline-{{ 'danger' if u.status == 'active' else 'success' }}"
+                          type="submit"
+                          {% if u.status == 'active' %}
+                          data-confirm="停用后其全部会话立即作废，他的预约不会被执行（凭据保留）。确定停用？"
+                          {% endif %}>
+                    {{ '停用' if u.status == 'active' else '启用' }}
+                  </button>
+                </form>
+                <form method="post" action="/admin/users/{{ u.id }}/delete"
+                      data-confirm="删除账号：他的计划与运行记录会保留（运行记录是「今天是否已提交」的证据），但不再有归属用户。确定删除？">
+                  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                  <button class="btn btn-sm btn-outline-danger" type="submit">删除</button>
+                </form>
+              </div>
+              <form method="post" action="/admin/users/{{ u.id }}/password" class="mt-1">
+                <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                <div class="input-group input-group-sm">
+                  <input class="form-control" name="password" type="password"
+                         placeholder="新口令（≥10 位）" autocomplete="new-password" required>
+                  <button class="btn btn-outline-secondary" type="submit"
+                          data-confirm="重置后该用户全部会话作废，需要你用安全渠道把新口令交给他本人。确定重置？">
+                    重置口令
+                  </button>
+                </div>
+                <div class="form-text text-muted">口令不会回显，也不会写进日志。</div>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="alert alert-secondary small mt-3" role="alert">
+  凭据失效时：<strong>只有该用户自己的计划</strong>会停下来等你重新登录
+  （显示为「等待认证」），<strong>不会</strong>改用其他用户的账号，也不会停掉别人的计划。
+  管理员在这一页看得到状态，但看不到、也不需要看到他的令牌。
+</div>
+
+<div class="action-row mt-3">
+  <a class="btn btn-outline-secondary btn-sm" href="/admin/advanced">返回高级</a>
+  <a class="btn btn-outline-secondary btn-sm" href="/admin/plans">预约计划</a>
+  <a class="btn btn-outline-secondary btn-sm" href="/admin/runs">运行记录</a>
+</div>
+
+{% endblock %}

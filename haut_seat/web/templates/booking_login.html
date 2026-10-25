@@ -1,0 +1,54 @@
+{% extends "booking_base.html" %}
+{% block content %}
+
+<div class="row justify-content-center">
+  <div class="col-12 col-md-6 col-lg-5">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h1 class="h5">登录</h1>
+        <p class="text-muted small">
+          这是<strong>本平台</strong>的用户账号（用户名 + 口令），用来区分"谁的预约"。
+          它和你的<strong>学校统一身份认证</strong>账号是两回事：学校账号只在绑定图书馆账号时用一次。
+        </p>
+
+        {% if error %}
+        <div class="alert alert-danger py-2" role="alert">{{ error }}</div>
+        {% endif %}
+
+        <form method="post" action="/booking/login">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          <div class="mb-3">
+            <label class="form-label" for="username">用户名</label>
+            <input class="form-control" id="username" name="username" type="text"
+                   value="{{ values.get('username', '') }}" autocomplete="username"
+                   autocapitalize="none" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="password">口令</label>
+            <input class="form-control" id="password" name="password" type="password"
+                   autocomplete="current-password" required>
+          </div>
+          <button class="btn btn-primary w-100" type="submit">登录</button>
+        </form>
+
+        <hr>
+        {% if signup_open %}
+        <p class="mb-0 small">
+          还没有账号？<a href="/booking/register">用邀请码注册</a>。
+        </p>
+        {% else %}
+        <p class="mb-0 small text-muted">
+          管理员尚未开放注册（或还没有生成邀请码），请联系管理员。
+        </p>
+        {% endif %}
+      </div>
+    </div>
+
+    <p class="text-muted small mt-3 mb-0">
+      登录后你可以：绑定自己的图书馆账号、建立自己的预约计划、查看自己计划的执行结果。
+      你的学校口令不会保存在服务器上。
+    </p>
+  </div>
+</div>
+
+{% endblock %}

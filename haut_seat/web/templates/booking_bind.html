@@ -1,0 +1,118 @@
+{% extends "booking_base.html" %}
+{% block content %}
+
+<div class="row justify-content-center">
+  <div class="col-12 col-lg-8">
+
+    <div class="card shadow-sm mb-3">
+      <div class="card-body">
+        <h1 class="h5">绑定图书馆账号</h1>
+        <p class="text-muted small mb-2">
+          这一步是<strong>你本人</strong>用自己的学校统一身份认证账号，通过学校官方的登录接口
+          完成一次真实登录；服务器只保存登录成功后返回的令牌（加密保存），
+          <strong>不保存你的学校口令</strong>，也<strong>不识别验证码</strong> ——
+          验证码要你自己看图输入。
+        </p>
+        <dl class="row small mb-0">
+          <dt class="col-sm-3">当前状态</dt>
+          <dd class="col-sm-9">
+            <span class="tone-badge tone-{{ cred.status_tone }}">{{ cred.status_label }}</span>
+            {% if cred.bound %}
+              <span class="ms-2">学校账号：<span class="mono">{{ cred.school_username }}</span></span>
+              <span class="ms-2 text-muted">指纹 {{ cred.fingerprint }}</span>
+              {% if cred.captured_at %}<span class="ms-2 text-muted">绑定于 {{ cred.captured_at }}</span>{% endif %}
+            {% endif %}
+            {% if cred.message %}<div class="text-muted mt-1">{{ cred.message }}</div>{% endif %}
+          </dd>
+        </dl>
+      </div>
+    </div>
+
+    <div class="card shadow-sm">
+      <div class="card-body">
+        {% if error %}
+        <div class="alert alert-danger py-2" role="alert">{{ error }}</div>
+        {% endif %}
+
+        {% if captcha_error %}
+        <div class="alert alert-warning py-2" role="alert">{{ captcha_error }}</div>
+        <a class="btn btn-outline-primary btn-sm" href="/booking/bind">再取一张验证码</a>
+        {% else %}
+        <form method="post" action="/booking/bind">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          {# 这张图片只是为了让本地校验失败时能把同一张图再渲染一次；
+             服务端真正认的是会话里记录的那张验证码的编号，改这里无害。 #}
+          <input type="hidden" name="captcha_image" value="{{ captcha_image }}">
+
+          <div class="mb-3">
+            <label class="form-label" for="school_username">学校统一身份认证账号</label>
+            <input class="form-control" id="school_username" name="school_username" type="text"
+                   value="{{ values.get('school_username', '') }}" autocomplete="off"
+                   autocapitalize="none" required>
+            <div class="form-text">学号 / 工号。这是标识，会显示给你自己与管理员，方便确认"这条预约用的是哪个账号"。</div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label" for="password">学校口令</label>
+            <input class="form-control" id="password" name="password" type="password"
+                   autocomplete="off" required>
+            <div class="form-text">
+              只在这一次请求里用于向学校登录接口提交，<strong>不落盘、不入日志</strong>。
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label" for="code">验证码</label>
+            <div class="d-flex align-items-center gap-2 mb-2">
+              <img src="{{ captcha_image }}" alt="验证码图片"
+                   style="height:44px;border:1px solid #dee2e6;border-radius:4px">
+              <a class="btn btn-sm btn-outline-secondary" href="/booking/bind">换一张</a>
+            </div>
+            <input class="form-control" id="code" name="code" type="text" maxlength="8"
+                   autocomplete="off" autocapitalize="none" required>
+            <div class="form-text">照图输入即可（看不清就点「换一张」）。</div>
+          </div>
+
+          <button class="btn btn-primary" type="submit">完成绑定</button>
+          <span class="text-muted small ms-2">
+            提交前请确认账号与验证码；一次提交只有一次机会，程序<strong>不会</strong>自动重试。
+          </span>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if cred.bound %}
+    <div class="card shadow-sm mt-3">
+      <div class="card-body">
+        <h2 class="h6">已绑定之后</h2>
+        <div class="d-flex gap-2 flex-wrap">
+          <form method="post" action="/booking/verify" class="m-0">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+            <button class="btn btn-sm btn-outline-primary" type="submit">重新验证有效性</button>
+          </form>
+          <form method="post" action="/booking/unbind" class="m-0"
+                data-confirm="将删除你已保存的凭据（密文），你的预约将无法执行。确定解绑？">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+            <button class="btn btn-sm btn-outline-danger" type="submit">解绑</button>
+          </form>
+        </div>
+        <p class="text-muted small mt-2 mb-0">
+          「重新验证」只做一次<strong>只读</strong>查询，不提交任何预约。凭据失效时，
+          你的预约会被暂停执行（并显示为「等待认证」），不会改用别人的账号。
+        </p>
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="alert alert-secondary small mt-3" role="alert">
+      为什么必须在这里登录一次？学校的登录页有<strong>图形验证码</strong>，
+      而验证码只能由人看图输入；本项目不做自动识别，也不尝试绕过学校的登录保护。
+      因此流程是"你本人完成官方登录 → 服务器取出这次登录产生的令牌"，
+      期间没有任何一步是伪造的。
+    </div>
+
+  </div>
+</div>
+
+{% endblock %}

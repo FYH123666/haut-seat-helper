@@ -1,0 +1,239 @@
+{% extends "booking_base.html" %}
+{% block content %}
+
+<h1 class="h5 mb-3">{{ '修改预约 #' ~ plan.id if plan else '新建预约' }}</h1>
+
+{% if errors %}
+<div class="alert alert-danger" role="alert">
+  <strong>请修正以下问题：</strong>
+  <ul class="mb-0">
+    {% for e in errors %}<li>{{ e }}</li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
+{% if warnings %}
+<div class="alert alert-warning" role="alert">
+  <ul class="mb-0">{% for w in warnings %}<li>{{ w }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
+<form method="post" action="{{ action }}" data-guard-submit>
+  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+
+  {# ① 多久一次。这个选择只决定一件事：写入哪条执行规则。 #}
+  <div class="card shadow-sm mb-3">
+    <div class="card-header">多久一次</div>
+    <div class="card-body">
+      <div class="d-flex flex-wrap gap-4 align-items-center">
+        {% for mode in plan_modes %}
+        <div class="form-check">
+          <input class="form-check-input" type="radio" name="mode" id="mode-{{ mode }}"
+                 value="{{ mode }}" data-mode-radio
+                 {{ 'checked' if values.mode == mode else '' }}>
+          <label class="form-check-label" for="mode-{{ mode }}">{{ mode_labels.get(mode, mode) }}</label>
+        </div>
+        {% endfor %}
+        <div class="form-check ms-3" data-weekdays-row>
+          <input class="form-check-input" type="checkbox" name="weekdays_only" id="weekdays_only"
+                 value="1" {{ 'checked' if values.weekdays_only else '' }}>
+          <label class="form-check-label" for="weekdays_only">仅工作日（周一至周五）</label>
+        </div>
+      </div>
+
+      <div class="row g-3 mt-1" data-once-only>
+        <div class="col-12 col-md-4">
+          <label class="form-label" for="run_date">执行日期</label>
+          <input class="form-control" id="run_date" name="run_date" type="date"
+                 value="{{ values.run_date }}">
+          <div class="form-text">
+            默认明天。图书馆规则是「读者只可预约当天座位」，所以这个日期<strong>既是执行日、
+            也是座位使用日</strong>：选明天 = 明天由程序去约明天的座位，不是现在就把明天的座占住。
+          </div>
+        </div>
+      </div>
+      <div class="form-text mt-2" data-daily-only>
+        「每天预约」不需要日期：程序每天在下面的时刻自动执行一次，直到你暂停它。
+        预约成功后当天不再重复执行。
+      </div>
+    </div>
+  </div>
+
+  {# ② 三个时间各有确切含义，分开说清：开始执行 = 程序开始抢的时刻；
+     座位使用开始 / 结束 = 你真正坐的时段。 #}
+  <div class="card shadow-sm mb-3">
+    <div class="card-header">时间</div>
+    <div class="card-body row g-3">
+      <div class="col-12 col-md-4">
+        <label class="form-label" for="trigger_at">系统开始执行预约操作的时间</label>
+        <input class="form-control" id="trigger_at" name="trigger_at" type="time" required
+               value="{{ values.trigger_clock }}">
+        <div class="form-text">到点开始抢座位。建议略早于下面「座位使用开始」。</div>
+      </div>
+      <div class="col-6 col-md-4">
+        <label class="form-label" for="use_start">座位使用开始时间</label>
+        <input class="form-control" id="use_start" name="use_start" type="time" required
+               value="{{ values.use_start }}">
+        <div class="form-text">你实际开始使用座位的时间。</div>
+      </div>
+      <div class="col-6 col-md-4">
+        <label class="form-label" for="use_end">座位使用结束时间</label>
+        <input class="form-control" id="use_end" name="use_end" type="time" required
+               value="{{ values.use_end }}">
+        <div class="form-text">必须与开始时间同一天，且在 07:00–21:30 之间。</div>
+      </div>
+      <div class="col-12">
+        <div class="form-text">
+          座位使用日期与上面的执行日期一致，程序会自动拼成完整时间提交，不需要你填写
+          <span class="mono">YYYY-MM-DD HH:MM:SS</span>。
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# ③ 坐哪儿。座位按优先级从上到下尝试。
+     座位目录只是「填表助手」：它把**真实的区域 ID 与座位名**填进本表，
+     提交时仍然只以本表为准（接口既没有区域列表，也无法从座位名反查区域 ID）。 #}
+  <div class="card shadow-sm mb-3">
+    <div class="card-header">坐哪儿</div>
+    <div class="card-body row g-3">
+      <div class="col-12">
+        <div class="alert alert-info py-2 mb-0" role="alert">
+          <div class="d-flex flex-wrap gap-2 align-items-center">
+            {# 这里必须写裸 ``&``：Jinja 的 ``{% set %}`` 字符串是**表达式字面量**，
+               自动转义会在渲染时把它变成 ``&amp;``。若自己先写成 ``&amp;``，
+               页面里就成了 ``&amp;amp;``，浏览器解析 URL 时会把它当成两个参数
+               ``return=plan_edit`` 与 ``amp;plan_id=N`` —— 计划编号会**静默丢失**。 #}
+            {% set catalog_href = ('/booking/catalog?return=plan_edit&plan_id=' ~ plan.id)
+                                  if plan else '/booking/catalog?return=plan_new' %}
+            <a class="btn btn-sm btn-primary" href="{{ catalog_href }}">从座位目录挑选</a>
+            {% if pick_info.bound_regionid %}
+            <span>已从目录带入 <strong>{{ pick_info.count }}</strong> 个座位，已自动填入下面的「候选座位」，
+              区域已绑定为 <strong>{{ pick_info.bound_regionid }}</strong>。可以继续手工调整。</span>
+            {% elif pick_info.count %}
+            <span>已从目录带入 <strong>{{ pick_info.count }}</strong> 个座位，已自动填入下面的「候选座位」；
+              所选座位来自多个区域（{{ pick_info.regionids | join('、') }}），
+              因此<strong>未改写区域 ID</strong>，请自行确认要保留哪个区域。</span>
+            {% else %}
+            <span>按区域、楼层、座位号点选，程序会把<strong>真实的区域 ID 与座位名</strong>填进本表，
+              不需要你去浏览器里翻参数。浏览目录只读本地记录，不会向图书馆发任何请求。</span>
+            {% endif %}
+          </div>
+          {% if pick_info.missing %}
+          <div class="mt-2 small">
+            其中 {{ pick_info.missing | length }} 个座位在目录中已找不到（可能已下线）：
+            {{ pick_info.missing | join('、') }}。它们仍会按名称参与匹配。
+          </div>
+          {% endif %}
+        </div>
+      </div>
+
+      {# 区域：目录里已有的区域直接按名字选；目录里还没有的区域只能手工填 ID。 #}
+      <div class="col-12 col-md-4">
+        <label class="form-label" for="regionid">区域</label>
+        <select class="form-select" id="regionid" name="regionid">
+          <option value="">— 手工填写区域 ID（见下方高级设置） —</option>
+          {% set selected_region = values.regionid | string %}
+          {% if selected_region and selected_region not in region_labels %}
+          <option value="{{ selected_region }}" selected>
+            {{ selected_region }}（目录里没有这个区域，非权威）
+          </option>
+          {% endif %}
+          {% for rid, region in region_labels.items() %}
+          <option value="{{ rid }}" {{ 'selected' if selected_region == rid else '' }}>
+            {{ region.region_label or ('区域 ' ~ rid ~ '（目录里尚未推断出名称）') }}
+            {%- if region.label_source == 'manual' %}（人工命名）{% else %}（由座位名推断，非权威）{% endif %}
+          </option>
+          {% endfor %}
+        </select>
+        {% if not region_labels %}
+        <div class="form-text">
+          座位目录里还没有任何区域。区域 ID 无法从接口反查，需要管理员在管理端的
+          「座位目录」里先添加这个区域；在此之前你可以直接在下面填座位名，
+          用上方高级设置手工填区域 ID。
+        </div>
+        {% else %}
+        <div class="form-text">
+          名称来自本地座位目录（不是图书馆的权威字段）。填错区域会整天盯着另一个区域的座位。
+        </div>
+        {% endif %}
+      </div>
+      <div class="col-12 col-md-8">
+        <label class="form-label" for="preferred_seats">候选座位（每行一个，第一行优先）</label>
+        <textarea class="form-control" id="preferred_seats" name="preferred_seats" rows="4"
+                  placeholder="十层东书库北区 01桌 B座">{{ values.preferred_seats }}</textarea>
+        <div class="form-text">
+          第一行是首选，约不到时按顺序换下一个。留空表示不做指定，
+          改用下面的「名称前缀」（都没填就是该区域全部座位，按名称排序）。
+          也可以在上面的「从座位目录挑选」里勾选。
+        </div>
+      </div>
+      <div class="col-12">
+        <label class="form-label" for="name">这次预约的名字</label>
+        <input class="form-control" id="name" name="name" required maxlength="80"
+               value="{{ values.name }}" placeholder="例如：早八自习">
+        <div class="form-text">只用于在列表里区分你的几条预约。</div>
+      </div>
+    </div>
+  </div>
+
+  {# 高级设置：这些是程序真正使用的原始参数。默认折叠，但**不隐藏** ——
+     看不清导致的值被静默改写，比多看一眼更糟。 #}
+  <details class="card shadow-sm mb-3">
+    <summary class="card-header" style="cursor: pointer">
+      高级设置（一般不需要改；里面是程序真正使用的原始参数）
+    </summary>
+    <div class="card-body row g-3">
+      <div class="col-12 col-md-6">
+        <label class="form-label" for="regionid_manual">手工填写区域 ID</label>
+        <input class="form-control" id="regionid_manual" name="regionid_manual" type="number" min="1"
+               value="{{ values.regionid_manual }}" placeholder="{{ values.regionid }}">
+        <div class="form-text">
+          仅在上面的区域下拉框选「手工填写」时使用。与下拉框同时填写且不一致时，
+          服务端会报错，不会替你挑一个。
+        </div>
+      </div>
+      <div class="col-12 col-md-6">
+        <label class="form-label" for="preferred_prefixes">名称前缀（每行一个）</label>
+        <textarea class="form-control" id="preferred_prefixes" name="preferred_prefixes"
+                  placeholder="十层东书库北区">{{ values.preferred_prefixes }}</textarea>
+        <div class="form-text">未填写候选座位时，按前缀匹配全部符合的座位。</div>
+      </div>
+      <div class="col-12 col-md-6">
+        <label class="form-label" for="max_attempts_per_seat">单个座位最大尝试次数</label>
+        <input class="form-control" id="max_attempts_per_seat" name="max_attempts_per_seat"
+               type="number" min="1" max="10" value="{{ values.max_attempts_per_seat }}">
+        <div class="form-text">同一个座位最多试几次，试完就换下一个候选。</div>
+      </div>
+      <div class="col-12">
+        <label class="form-label" for="confirmed_bookable_states">已确认可预约状态组合（JSON）</label>
+        <textarea class="form-control mono" id="confirmed_bookable_states"
+                  name="confirmed_bookable_states"
+                  placeholder='[["2", 1, false]]'>{{ values.confirmed_bookable_states }}</textarea>
+        <div class="form-text">
+          只有命中这些组合的座位才会被当作可预约候选。<strong>留空表示「状态语义未验证」，
+          程序不会把任何座位当作可预约，也就不会有候选、永远约不到。</strong>
+          默认值是一个已观察到的组合，未经官方文档确认。不确定就不要改动它。
+        </div>
+      </div>
+      <div class="col-12">
+        <label class="form-label" for="note">备注</label>
+        <textarea class="form-control" id="note" name="note" maxlength="500">{{ values.note }}</textarea>
+      </div>
+    </div>
+  </details>
+
+  <div class="action-row mb-5">
+    <button class="btn btn-primary" type="submit">{{ '保存修改' if plan else '保存' }}</button>
+    <a class="btn btn-outline-secondary"
+       href="{{ ('/booking/' ~ plan.id) if plan else '/booking' }}">取消</a>
+  </div>
+
+  {% if not plan %}
+  <div class="alert alert-info" role="alert">
+    保存后这条预约是<strong>「已暂停」</strong>的：不会自动执行，
+    需要你在列表里显式点击「启用」才会开始。
+  </div>
+  {% endif %}
+</form>
+
+{% endblock %}

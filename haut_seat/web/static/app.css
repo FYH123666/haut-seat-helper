@@ -1,0 +1,80 @@
+/* 本地面板样式：只做布局与状态色，不依赖外部 CDN。
+   若 Bootstrap CDN 不可达，页面仍具备基本可读性与可点按性。 */
+
+body { -webkit-text-size-adjust: 100%; }
+
+/* 触摸目标不小于 44px，手机上好点按 */
+.btn, .form-control, .form-select, .nav-link { min-height: 44px; }
+.btn-sm { min-height: 38px; }
+textarea.form-control { min-height: 6.5rem; }
+
+.card { border-radius: .6rem; }
+.card-header { font-weight: 600; }
+
+/* 状态徽标：未知 / 已中断必须与「失败」明显不同，避免被当成普通失败 */
+.tone-badge {
+  display: inline-block; padding: .18rem .5rem; border-radius: .45rem;
+  font-size: .78rem; font-weight: 600; line-height: 1.4; white-space: nowrap;
+  border: 1px solid transparent;
+}
+.tone-secondary { background: #e9ecef; color: #41464b; border-color: #ced4da; }
+.tone-info      { background: #cff4fc; color: #055160; border-color: #9eeaf9; }
+.tone-success   { background: #d1e7dd; color: #0a3622; border-color: #a3cfbb; }
+.tone-warning   { background: #fff3cd; color: #664d03; border-color: #ffe69c; }
+.tone-danger    { background: #f8d7da; color: #58151c; border-color: #f1aeb5; }
+.tone-dark      { background: #343a40; color: #fff; border-color: #343a40; }
+
+/* 未知状态加斜纹，视觉上一眼可辨 */
+.tone-dark.tone-unknown {
+  background-image: repeating-linear-gradient(45deg, #343a40 0 6px, #495057 6px 12px);
+}
+
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .82rem; }
+
+/* 运行事件日志 */
+.event-list { list-style: none; padding-left: 0; margin: 0; }
+.event-list li { padding: .35rem .5rem; border-bottom: 1px solid #e9ecef; font-size: .86rem; }
+.event-list li:last-child { border-bottom: 0; }
+.event-time { color: #6c757d; margin-right: .4rem; }
+.event-phase { font-weight: 600; margin-right: .4rem; }
+.event-error { color: #b02a37; }
+.event-warning { color: #997404; }
+
+/* 表单里的一行动作按钮组：手机上自动换行 */
+.action-row { display: flex; flex-wrap: wrap; gap: .5rem; }
+.action-row form { margin: 0; }
+
+.kv { display: grid; grid-template-columns: minmax(9rem, 14rem) 1fr; gap: .25rem .75rem; }
+.kv dt { color: #6c757d; font-weight: 500; }
+.kv dd { margin: 0; word-break: break-word; }
+@media (max-width: 576px) {
+  .kv { grid-template-columns: 1fr; }
+  .kv dt { margin-top: .4rem; }
+}
+
+/* 导航折叠：Bootstrap 的 JS 被 CSP（script-src 'self'）挡住无法加载，
+   折叠行为由 app.js 用原生 JS 切换 .show 类实现。
+   这里补一条与 Bootstrap 一致的显示规则，使「CDN 可达 / 不可达」两种情况下
+   行为相同；断点与 base.html 的 navbar-expand-lg 保持一致（992px）。 */
+@media (max-width: 991.98px) {
+  .collapse:not(.show) { display: none; }
+}
+/* 远程浏览器的画面：只做显示，不承载任何输入控件。
+   键鼠事件由 remote_browser.js 绑定在 #remote-browser-root 上转发到服务器端浏览器。
+   画面本身必须是"可聚焦 + 不明显溢出"的：宽度撑满卡片、按比例缩放，
+   高度上限避免 1280x800 的画面在手机上把按钮挤出屏幕。 */
+.remote-frame {
+  display: block;
+  width: 100%;
+  /* height: auto 是**必需**的，不是随手写的：remote_browser.js 用
+     naturalWidth / clientWidth 把点击坐标还原成远端 CSS 像素，这个换算只在
+     "图片按比例铺满元素盒子"时成立。若改成固定高度或 object-fit: contain，
+     图片会在盒子里留黑边，点哪儿都会偏。 */
+  height: auto;
+  background: #212529;
+  border: 1px solid #ced4da;
+  border-radius: .25rem;
+  cursor: crosshair;
+}
+#remote-browser-root { outline: none; }
+#remote-browser-root:focus .remote-frame { border-color: #0d6efd; box-shadow: 0 0 0 .2rem rgba(13,110,253,.25); }

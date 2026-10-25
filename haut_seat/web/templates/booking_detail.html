@@ -1,0 +1,170 @@
+{% extends "booking_base.html" %}
+{% import "_macros.html" as m with context %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+  <div>
+    <h1 class="h5 mb-1">{{ plan.name }}</h1>
+    <div>
+      {{ m.plan_badge(plan.status) }}
+      <span class="tone-badge tone-{{ 'dark' if origin == '用户端' else 'secondary' }}">{{ origin }}</span>
+      {{ m.window_badge(window_state) }}
+      {% if plan.pause_requested %}<span class="tone-badge tone-warning">已登记暂停（本轮结束后生效）</span>{% endif %}
+    </div>
+  </div>
+  <div class="action-row">
+    {% if plan.status.value == 'running' %}
+      <form method="post" action="/booking/{{ plan.id }}/pause"
+            data-confirm="将不再启动新的运行；已经发出的提交请求不会被中断。确定继续？">
+        <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+        <button class="btn btn-sm btn-outline-warning" type="submit">暂停（本轮后生效）</button>
+      </form>
+    {% elif plan.status.value == 'pending' %}
+      <form method="post" action="/booking/{{ plan.id }}/pause">
+        <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+        <button class="btn btn-sm btn-outline-warning" type="submit">暂停</button>
+      </form>
+    {% else %}
+      <form method="post" action="/booking/{{ plan.id }}/enable">
+        <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+        <button class="btn btn-sm btn-success" type="submit">启用</button>
+      </form>
+    {% endif %}
+    {% if can_modify %}
+    <a class="btn btn-sm btn-outline-primary" href="/booking/{{ plan.id }}/edit">修改</a>
+    {% endif %}
+    <form method="post" action="/booking/{{ plan.id }}/delete"
+          data-confirm="确定删除这条预约及其运行记录？此操作不可撤销。">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <button class="btn btn-sm btn-outline-danger" type="submit">删除</button>
+    </form>
+  </div>
+</div>
+
+{% if plan.status.value == 'unknown' %}
+<div class="alert alert-dark" role="alert">
+  <strong>提交结果未知</strong>：上一次提交请求已经发出，但无法确认服务器是否已受理。
+  这<strong>不是</strong>普通失败，程序没有、也不会自动重试它。<br>
+  请先登录图书馆网站查看该时段是否已有预约记录；确认后勾选下面的选项再恢复。
+  <form method="post" action="/booking/{{ plan.id }}/enable" class="mt-3">
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <div class="form-check mb-2">
+      <input class="form-check-input" type="checkbox" name="acknowledge_unknown" value="1" id="ack_unknown" required>
+      <label class="form-check-label" for="ack_unknown">
+        我已在图书馆网站核实该时段的预约记录，确认可以重新执行
+      </label>
+    </div>
+    <button class="btn btn-dark btn-sm" type="submit">恢复为待执行</button>
+  </form>
+</div>
+{% endif %}
+
+{% if not can_modify and modify_blocked_reason %}
+<div class="alert alert-warning py-2 small" role="alert">
+  现在<strong>不能修改或删除</strong>这条预约：{{ modify_blocked_reason }}
+</div>
+{% endif %}
+{% if delete_blocked_reason %}
+<div class="alert alert-warning py-2 small" role="alert">
+  现在<strong>不能删除</strong>这条预约：{{ delete_blocked_reason }}
+</div>
+{% endif %}
+
+<div class="row g-3">
+  <div class="col-12 col-lg-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-header">这条预约的内容</div>
+      <div class="card-body">
+        <dl class="kv mb-0">
+          <dt>什么时候执行</dt><dd>{{ when_label }}</dd>
+          <dt>座位时段</dt>
+          <dd class="mono">
+            {% if seat_window[0] and seat_window[1] %}{{ seat_window[0] }}–{{ seat_window[1] }}
+            {% else %}<span class="text-muted">时间不合法</span>{% endif %}
+          </dd>
+          <dt>多久一次</dt><dd>{{ repeat_labels.get(plan.repeat_rule, plan.repeat_rule) }}</dd>
+          <dt>执行日期</dt><dd class="mono">{{ plan.run_date }}</dd>
+          <dt>区域</dt><dd>{{ plan.regionid }}<span class="text-muted small">（图书馆的区域 ID）</span></dd>
+          <dt>候选座位（按优先级）</dt>
+          <dd>
+            {% if plan.preferred_seats %}
+              <ol class="mb-0 ps-3">{% for s in plan.preferred_seats %}<li>{{ s }}</li>{% endfor %}</ol>
+            {% elif plan.preferred_prefixes %}
+              {{ plan.preferred_prefixes|join('、') }}<span class="text-muted small">（按名称前缀匹配）</span>
+            {% else %}
+              <span class="text-muted">未指定：会用该区域的全部座位，按名称排序</span>
+            {% endif %}
+          </dd>
+          <dt>来源</dt><dd>{{ origin }}</dd>
+          <dt>备注</dt><dd>{{ plan.note or '—' }}</dd>
+          <dt>创建 / 更新</dt><dd class="mono small">{{ plan.created_at }}<br>{{ plan.updated_at }}</dd>
+        </dl>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-header">最近一次执行结果</div>
+      <div class="card-body">
+        {% if last_run %}
+        <dl class="kv mb-0">
+          <dt>运行</dt><dd>#{{ last_run.id }}</dd>
+          <dt>结果</dt><dd>{{ m.run_badge(last_run.status) }}</dd>
+          <dt>开始 / 结束</dt>
+          <dd class="mono small">{{ last_run.started_at }}<br>{{ last_run.finished_at or '（尚未结束）' }}</dd>
+          <dt>耗时</dt><dd>{{ run_duration_text(last_run) }}</dd>
+          <dt>预约编号</dt>
+          <dd>{% if last_run.booking_id %}<span class="mono">{{ last_run.booking_id }}</span>
+              {% else %}<span class="text-muted">—</span>{% endif %}</dd>
+          <dt>错误分类</dt><dd>{{ m.err_badge(last_run.category) }}</dd>
+          <dt>失败 / 未知原因</dt><dd>{{ last_run.message or '—' }}</dd>
+          <dt>查询 / 提交次数</dt><dd>{{ last_run.query_count }} / {{ last_run.submit_count }}</dd>
+        </dl>
+        {% if last_run.submit_count and last_run.status.value == 'unknown' %}
+        <div class="alert alert-dark py-2 small mt-2 mb-0" role="alert">
+          本次运行<strong>发起过 {{ last_run.submit_count }} 次提交</strong>，因此服务器端可能已经留下了预约记录。
+          程序不会自动重试，请人工核实。
+        </div>
+        {% endif %}
+        {% else %}
+        <p class="text-muted mb-0">这条预约还没有执行过。启用后到点会由后台调度自动执行。</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card shadow-sm mt-3">
+  <div class="card-header">执行历史（最多 10 条）</div>
+  <div class="card-body">
+    {% if runs %}
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead><tr><th>运行</th><th>结果</th><th>错误分类</th><th>开始</th><th>耗时</th><th>提交</th><th>预约编号</th></tr></thead>
+        <tbody>
+        {% for r in runs %}
+          <tr>
+            <td>#{{ r.id }}</td>
+            <td>{{ m.run_badge(r.status) }}</td>
+            <td>{{ m.err_badge(r.category) }}</td>
+            <td class="mono small">{{ r.started_at }}</td>
+            <td class="small">{{ run_duration_text(r) }}</td>
+            <td>{{ r.submit_count }}</td>
+            <td class="mono small">{{ r.booking_id or '—' }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="text-muted mb-0">还没有执行记录。</p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="action-row mt-3">
+  <a class="btn btn-sm btn-outline-secondary" href="/booking">← 返回我的预约</a>
+</div>
+
+{% endblock %}

@@ -1,0 +1,38 @@
+# haut-seat-helper Web 管理面板 —— logrotate 示例
+#
+# 为什么需要：日志有**两个**写入者，都不做轮转，文件会一直增长——
+#   1) 应用自身的 logging.FileHandler（HAUT_LOG_FILE，默认 logs/haut_seat.log）；
+#   2) systemd 的 StandardOutput=append:（示例单元里是 logs/web.log，内容基本与 1) 重复）。
+# 面板长期常驻时，这两个文件是磁盘占用的主要来源。
+#
+# 为什么必须用 copytruncate：两个写入者都以 append 模式（O_APPEND）打开文件，
+# 且**不会**重新打开。copytruncate 先复制再原地截断，写入者继续写入仍然落在同一个
+# inode 的末尾，日志不丢；若改用「重命名 + 新建」的方式，两个写入者会继续往已被
+# 移走的旧 inode 写，新文件永远是空的。
+#
+# 安装：
+#   sudo cp deploy/logrotate-haut-seat.example /etc/logrotate.d/haut-seat
+#   sudo chown root:root /etc/logrotate.d/haut-seat
+#   sudo chmod 644 /etc/logrotate.d/haut-seat
+#
+# 试运行（只打印将要做什么，不实际轮转）：
+#   sudo logrotate -d /etc/logrotate.d/haut-seat
+#
+# Debian/Ubuntu 自带 logrotate 的每日任务（/etc/cron.daily/logrotate 或
+# logrotate.timer），装上本文件即生效，不需要额外配置定时器。
+#
+# 按实际情况修改下面的路径（与 systemd 单元里的 WorkingDirectory 保持一致）。
+# 日志本身已做脱敏，不含 Cookie / Authorization / 口令，但仍是运行细节，
+# 因此保留 14 天并压缩。
+
+/opt/haut-seat-helper/logs/web.log
+/opt/haut-seat-helper/logs/haut_seat.log {
+    daily
+    rotate 14
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+    su root root
+}

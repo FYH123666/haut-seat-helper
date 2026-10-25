@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+{% block content %}
+
+{# 服务器端浏览器的远程操作页。
+
+   两条设计红线，写在这里是为了让后来改这个模板的人先看见：
+
+   1. **画面上不提供任何输入框**。学校的账号口令必须敲进**远端页面本身**，
+      绝不能敲进我们自己的 DOM —— 那会让口令进入我们的表单、浏览器自动填充
+      与历史记录，等于凭空多出一处泄漏面。本页只有一个 <img> 加若干按钮。
+   2. **没有内联事件处理器、没有外部资源**：CSP 是 script-src 'self'
+      且不放行 'unsafe-inline'，所以键鼠事件全部由 remote_browser.js 用
+      addEventListener 绑定。 #}
+
+{% set has_session = view and view.state != 'idle' %}
+
+<h1 class="h5 mb-3">远程浏览器登录</h1>
+
+{% if not secure and allow_insecure %}
+<div class="alert alert-danger" role="alert">
+  <strong>你正在用明文 HTTP 打开这个页面。</strong>
+  这次远程登录会把三样东西暴露在链路上：管理员会话 Cookie、服务器端浏览器的
+  <strong>画面</strong>，以及你敲进远端页面的<strong>学校账号口令</strong>按键。
+  同一个网络里的任何人都能读到它们。
+  <div class="mt-2 small">
+    两条零成本缓解（任选其一即可，不需要改代码）：<br>
+    ① 在自己电脑上开一条 SSH 隧道，然后改用
+    <code>http://127.0.0.1:8080</code> 访问：
+    <code>ssh -L 8080:127.0.0.1:8080 用户名@服务器地址</code>；<br>
+    ② 用 nginx 反代并配上 TLS 证书（见 <code>docs/web-deploy.md</code>）。<br>
+    用完之后建议顺手改一次学校账号的口令。
+  </div>
+</div>
+{% elif not secure %}
+<div class="alert alert-danger" role="alert">
+  <strong>当前是明文 HTTP，而远程浏览器已被配置为只允许 HTTPS。</strong>
+  可以把面板放到 HTTPS 后面（SSH 隧道或 nginx + TLS），或显式设
+  <code>HAUT_AUTH_REMOTE_ALLOW_INSECURE=true</code> 接受明文链路的风险。
+</div>
+{% endif %}
+
+{% if not enabled %}
+<div class="card shadow-sm mb-3">
+  <div class="card-body">
+    <p class="mb-0">
+      <span class="tone-badge tone-warning">已禁用</span>
+      远程浏览器被 <code>HAUT_AUTH_REMOTE_ENABLED=false</code> 关掉了；
+      本页的所有操作都会被拒绝。改回 <code>true</code> 并重启服务后即可使用。
+    </p>
+  </div>
+</div>
+{% elif not available %}
+<div class="card shadow-sm mb-3">
+  <div class="card-body">
+    <p class="mb-2">
+      <span class="tone-badge tone-warning">不可用</span> {{ unavailable_reason }}
+    </p>
+    <p class="text-muted small mb-0">
+      服务器上执行：<code>pip install -e ".[auth]"</code> 安装 Python 依赖，
+      再用<strong>同一路径</strong>下载浏览器：
+      <code>PLAYWRIGHT_BROWSERS_PATH=&lt;项目&gt;/.cache/ms-playwright python -m playwright install chromium</code>
+      —— 这个变量在<strong>安装时</strong>和 systemd 单元里必须逐字一致，
+      否则浏览器会装到 <code>$HOME/.cache</code>，单元里找不到（装了也白装）。
+    </p>
+  </div>
+</div>
+{% else %}
+
+<div class="card shadow-sm mb-3">
+  <div class="card-header">这台服务器上的浏览器</div>
+  <div class="card-body">
+    <p class="mb-2">
+      画面来自服务器上运行的<strong>无头 Chromium</strong>；你的鼠标与键盘事件会被转发过去。
+      因此<strong>服务器不需要图形桌面</strong>，你也不需要 SSH 或桌面共享。
+    </p>
+    <p class="mb-2">
+      <strong>这是人工登录，不是自动登录</strong>：出现图形验证码时由<strong>你本人</strong>在画面里识别；
+      本项目不代填账号口令、不识别或绕过验证码，也不会因此触发任何预约提交。
+    </p>
+    <ul class="text-muted small mb-0">
+      <li>只支持一个会话：谁先开始谁持有，别人既看不到画面也发不了输入。</li>
+      <li>不支持按键长按重复，不支持用鼠标拖拽选中文字，双击会被远端当成两次单击。</li>
+      <li>键鼠指令经网络往返，画面按固定间隔刷新，因此操作手感会有延迟；慢一点敲更稳。</li>
+      <li>登录成功后浏览器会<strong>自动关闭</strong>，令牌存成受保护的快照（不会显示在页面上）。</li>
+    </ul>
+  </div>
+</div>
+
+<div class="card shadow-sm mb-3">
+  <div class="card-header">会话状态</div>
+  <div class="card-body">
+    {% set tone = {'captured': 'success', 'failed': 'danger'}.get(view.state, 'secondary') %}
+    <p class="mb-2">
+      <span class="tone-badge tone-{{ tone }}" id="rb-state-label">{{ view.label }}</span>
+      <span class="ms-1" id="rb-state-message">{{ view.message }}</span>
+    </p>
+    <p class="text-muted small mb-2" id="rb-state-detail">
+      {% if view.url %}当前页面：<code>{{ view.url }}</code>{% endif %}
+      {% if view.active and view.idle_left_s is defined %}
+        空闲自动关闭倒计时：{{ view.idle_left_s }} 秒（有任何输入就重置）。
+      {% endif %}
+    </p>
+
+    {# 下面三行是**活体结论**：remote_browser.js 每次轮询到新状态都会原地改写它们
+       （``show(el, text)`` / ``el.hidden``）。因此它们必须**无条件存在**于 DOM ——
+       一旦包在 ``{% if %}`` 里，采集成功的那一刻元素并不存在，getElementById 拿到
+       null，页面上就永远不会出现「已获取凭据」，只剩一句"看起来在转圈"。
+       初始文本由服务端渲染，与脚本写的是**同一套措辞**：关掉 JS 也能看到同样的结论，
+       开着 JS 也不会在第一次改写时"换一种说法"。#}
+    {% set captured_text = ('已获取凭据 · 采集时间 ' ~ (view.captured_at or '未知')
+                            ~ ' · 指纹 ' ~ view.fingerprint) if view.captured else '' %}
+    {% set precheck_text = ('只读认证预检：' ~ view.precheck_status
+                            ~ ' —— ' ~ (view.precheck_message or ''))
+                           if view.precheck_status else '' %}
+    {% set reason_text = ('结束原因：' ~ view.reason_label
+                          ~ ('（' ~ view.reason ~ '）' if view.reason else ''))
+                         if (not view.captured and view.reason_label) else '' %}
+    <p class="mb-2 text-muted small" id="rb-captured-line"
+       {%- if not captured_text %} hidden{% endif %}>{{ captured_text }}</p>
+    <p class="mb-2 text-muted small" id="rb-precheck-line"
+       {%- if not precheck_text %} hidden{% endif %}>{{ precheck_text }}</p>
+    <p class="mb-2 text-muted small" id="rb-reason-line"
+       {%- if not reason_text %} hidden{% endif %}>{{ reason_text }}</p>
+    <p class="text-muted small mb-0">
+      指纹是令牌的 sha256 前若干位，用于指认「当前用的是哪一份凭据」，<strong>不可反推</strong>；
+      本页面只读元数据，<strong>不会</strong>把 Cookie / Token 渲染到前端。
+    </p>
+
+    {# 这个坑与本功能无关，但会让人以为"登录成功了却没用"：env 模式按设计只读
+       .env，采集到的快照会被忽略。因此**先**说清楚，而不是等采完才说。 #}
+    {% if auth_source == 'env' %}
+    <p class="text-danger small mb-0">
+      <strong>注意：</strong>当前 <code>HAUT_AUTH_SOURCE=env</code>，程序只读 <code>.env</code> 里的凭据，
+      <strong>在这里采集到的快照不会被使用</strong>。请把 <code>HAUT_AUTH_SOURCE</code> 改成
+      <code>auto</code>（或 <code>browser</code>）并重启服务，或到
+      <code>/admin/auth</code> 页面用「重新读取凭据来源」确认当前实际来源。
+    </p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card shadow-sm mb-3">
+  <div class="card-header">操作</div>
+  <div class="card-body">
+    <div class="action-row">
+      {% if has_session %}
+      <form method="post" action="/admin/auth/browser/stop"
+            data-confirm="将结束这次远程浏览器会话并关闭服务器上的浏览器。确定继续？">
+        <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+        <button class="btn btn-outline-danger btn-sm" type="submit">结束会话</button>
+      </form>
+      {% elif secure or allow_insecure %}
+      <form method="post" action="/admin/auth/browser/start"
+            data-confirm="将在服务器上启动一个无头浏览器并开始转发画面。随后请在其中完成登录（含验证码）。确定继续？">
+        <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+        <button class="btn btn-primary btn-sm" type="submit">开始远程登录</button>
+      </form>
+      {% else %}
+      {# 明文 HTTP 且没开 allow_insecure：服务端一定会拒绝，那就不要给一个
+         按下去必然失败的按钮 —— 直接把原因和解决办法写在这里。 #}
+      <span class="text-danger small">
+        明文 HTTP 下已禁止启动（服务端会拒绝）：请改用 HTTPS，
+        或先开 SSH 隧道再访问 <code>http://127.0.0.1:8080</code>。
+      </span>
+      {% endif %}
+      <a class="btn btn-outline-secondary btn-sm" href="/admin/auth/browser">刷新页面</a>
+      <a class="btn btn-outline-secondary btn-sm" href="/admin/auth">返回认证状态</a>
+    </div>
+  </div>
+</div>
+
+{% if has_session %}
+<div class="card shadow-sm mb-3">
+  <div class="card-header">服务器端浏览器画面（点这里，键鼠会转发过去）</div>
+  <div class="card-body">
+    {# 键鼠事件必须可聚焦：div 上加 tabindex 才能接到 keydown。 #}
+    <div id="remote-browser-root"
+         data-frame-url="/admin/auth/browser/frame"
+         data-state-url="/admin/auth/browser/state"
+         data-input-url="/admin/auth/browser/input"
+         data-csrf="{{ csrf_token }}"
+         data-poll-ms="{{ poll_ms }}"
+         data-active="{{ '1' if view.active else '0' }}"
+         tabindex="0">
+      <img id="rb-frame" class="remote-frame" alt="服务器端浏览器的实时画面"
+           src="/admin/auth/browser/frame">
+      <p class="text-muted small mb-0 mt-2" id="rb-hint">
+        在这张画面上点击、拖动滚动、直接打字即可；输入会转发到远端页面。
+      </p>
+    </div>
+  </div>
+</div>
+{# 只用本地脚本（CSP 是 script-src 'self'）。脚本在找不到上面的根节点时自行退出，
+   因此"没有会话"的页面加载它也不会有任何副作用。 #}
+<script src="{{ url_for('static', path='remote_browser.js') }}"></script>
+{% endif %}
+
+{% endif %}
+
+{% endblock %}

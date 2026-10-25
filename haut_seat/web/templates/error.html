@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="card shadow-sm mx-auto" style="max-width: 34rem;">
+  <div class="card-header">
+    {{ code or '出错了' }}{% if title and title != code %} · {{ title }}{% endif %}
+  </div>
+  <div class="card-body">
+    <p class="mb-3">{{ detail or '请求未能完成。' }}</p>
+    <p class="text-muted small mb-3">
+      页面不会显示任何凭据、凭据占位或内部堆栈信息。
+      如果这是登录状态导致的，请先登录后重试。
+    </p>
+    <div class="action-row">
+      <a class="btn btn-sm btn-primary" href="/admin">返回概览</a>
+      <a class="btn btn-sm btn-outline-secondary" href="/admin/login">去登录</a>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

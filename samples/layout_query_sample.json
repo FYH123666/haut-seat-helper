@@ -1,0 +1,12 @@
+{
+  "_comment": "脱敏样例，仅用于离线解析与单元测试。字段名保留，取值已脱敏为占位符，非真实数据。请用你自己的脱敏导出替换本文件。",
+  "layout": [
+    { "regionid": 1, "name": "示例区域一" },
+    { "regionid": 2, "name": "示例区域二" }
+  ],
+  "seatList": [
+    { "id": 1001, "seatName": "A-001", "seatStatus": "占位-未验证", "isCan": "占位-未验证", "open": "占位-未验证", "someUnknownField": "保留未知字段示例" },
+    { "id": 1002, "seatName": "A-002", "seatStatus": "占位-未验证", "isCan": "占位-未验证", "open": "占位-未验证" },
+    { "id": 1003, "seatName": "B-001", "seatStatus": "占位-未验证", "isCan": "占位-未验证", "open": "占位-未验证" }
+  ]
+}

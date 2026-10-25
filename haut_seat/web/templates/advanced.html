@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h1 class="h5 mb-3">高级</h1>
+
+<div class="alert alert-secondary small" role="alert">
+  这一页是<strong>工程 / 运维界面</strong>，日常预约不需要进来。
+  这些页面一个都没有被删掉，也能直接访问：只是不再和「我的预约」「座位目录」平铺在同一级导航里。
+  这里的任何操作都<strong>不会</strong>改变真实预约开关（它只能改服务器上的 <code>.env</code>）。
+</div>
+
+<div class="row g-3">
+  <div class="col-12 col-lg-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-header">当前开关</div>
+      <div class="card-body">
+        {% if scheduler_status %}
+        <dl class="kv mb-0">
+          <dt>调度线程</dt><dd>{{ '运行中' if scheduler_status.running else '未运行' }}</dd>
+          <dt>调度总开关</dt><dd>{{ '开' if app_setting.scheduler_enabled else '关' }}</dd>
+          <dt>全局暂停</dt><dd>{{ '开（不发起新提交）' if app_setting.global_pause else '关' }}</dd>
+          <dt>并发上限</dt><dd>{{ scheduler_status.max_concurrent }}</dd>
+          <dt>活动计划</dt><dd>{{ scheduler_status.active_plans or '无' }}</dd>
+          <dt>最近轮询</dt><dd class="mono">{{ scheduler_status.last_tick_at or '—' }}</dd>
+        </dl>
+        {% else %}
+        <p class="text-muted mb-0">调度器未在当前进程中运行（<code>haut-seat-helper web</code> 之外的命令不会启动它）。</p>
+        {% endif %}
+        {% if stats %}
+        <hr>
+        <dl class="kv mb-0">
+          <dt>计划</dt>
+          <dd>
+            待执行 {{ stats.plans_pending }} · 运行中 {{ stats.plans_running }} ·
+            已暂停 {{ stats.plans_paused }} · 等待认证 {{ stats.plans_awaiting_auth }}
+          </dd>
+          <dt>终态</dt>
+          <dd>
+            预约成功 {{ stats.plans_succeeded }} · 预约失败 {{ stats.plans_failed }} ·
+            提交结果未知 {{ stats.plans_unknown }} · 已停止 {{ stats.plans_stopped }}
+          </dd>
+          <dt>今日运行（{{ stats.today }}）</dt>
+          <dd>
+            {{ stats.runs_today }} 次 · 失败 {{ stats.runs_failed }} · 结果未知 {{ stats.runs_unknown }}
+          </dd>
+        </dl>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-header">全部界面</div>
+      <div class="card-body">
+        <div class="list-group list-group-flush">
+          <a class="list-group-item list-group-item-action" href="/admin/users">
+            <strong>用户（用户端账号）</strong>
+            <div class="text-muted small">
+              谁在用用户端、各自绑定了哪个图书馆账号、凭据是否有效；邀请码与注册开关。
+              这一页<strong>不显示</strong>任何凭据值。
+            </div>
+          </a>
+          <a class="list-group-item list-group-item-action" href="/admin/plans">
+            <strong>预约计划（原始表格）</strong>
+            <div class="text-muted small">按状态、窗口、区域、座位逐列查看所有计划。</div>
+          </a>
+          <a class="list-group-item list-group-item-action" href="/admin/runs">
+            <strong>运行记录</strong>
+            <div class="text-muted small">每一次执行的完整事件流（已脱敏，不含任何凭据）。</div>
+          </a>
+          <a class="list-group-item list-group-item-action" href="/admin/auth">
+            <strong>认证状态</strong>
+            <div class="text-muted small">登录是否有效、何时失效，以及更新凭据的入口。</div>
+          </a>
+          <a class="list-group-item list-group-item-action" href="/admin/notifications">
+            <strong>通知设置</strong>
+            <div class="text-muted small">哪些事件需要提醒（该页面自述尚未实现，保持原样）。</div>
+          </a>
+          <a class="list-group-item list-group-item-action" href="/admin/system">
+            <strong>系统状态</strong>
+            <div class="text-muted small">全局暂停、调度总开关、运行日志清理、数据库位置。</div>
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="action-row mt-3">
+  <a class="btn btn-outline-secondary btn-sm" href="/admin">返回我的预约</a>
+  <a class="btn btn-outline-primary btn-sm" href="/admin/catalog">座位目录</a>
+</div>
+
+{% endblock %}

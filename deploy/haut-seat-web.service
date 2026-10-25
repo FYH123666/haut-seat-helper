@@ -1,0 +1,113 @@
+# haut-seat-helper Web 管理面板 —— systemd 单元示例
+#
+# 安装步骤（Debian/Ubuntu 路径示例，按需修改）：
+#   1) sudo cp deploy/haut-seat-web.service /etc/systemd/system/
+#   2) sudo systemctl daemon-reload
+#   3) sudo systemctl enable --now haut-seat-web
+#   4) sudo systemctl status haut-seat-web
+#
+# 注意事项：
+#   * 服务**只监听 127.0.0.1**，对外访问请配 nginx + HTTPS（见
+#     deploy/nginx-haut-seat.conf.example），不要把 HAUT_WEB_HOST 改成 0.0.0.0。
+#   * 环境变量放在独立的 EnvironmentFile 里（本项目根目录的 .env 已被 git 忽略）：
+#       WorkingDirectory 下的 .env 由 pydantic-settings 自动读取，无需在此重复声明。
+#   * 想临时停掉一切预约：`sudo systemctl stop haut-seat-web`，或只建暂停旗标
+#     `touch data/pause.flag`（服务不停，但不会提交预约）。
+
+[Unit]
+Description=haut-seat-helper 图书馆座位助手 Web 管理面板
+Documentation=file:///opt/haut-seat-helper/docs/web-deploy.md
+After=network-online.target
+Wants=network-online.target
+
+# 启动频率限制：1 分钟内最多 5 次启动，超过则进入 start-limit-hit（需 reset-failed 才恢复）。
+# 这两项属于 [Unit] 段；写在 [Service] 段会被 systemd 当作未知选项忽略并告警，
+# 于是静默退回默认值（10 秒 / 5 次）——见 systemd.unit(5)「[UNIT] SECTION OPTIONS」。
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+
+# 按实际情况修改这三项。该账号必须**先手工创建**，并且拥有 data/ 与 logs/
+# （完整命令见 docs/web-deploy.md 第 6 节），否则 ExecStartPre 会直接失败。
+# 另外：代码目录本身必须存在 —— ReadWritePaths 里没有 "-" 前缀的路径若不存在，
+# 单元会因 mount namespace 配置失败而拒绝启动（systemd.exec(5)）。
+User=hautseat
+Group=hautseat
+WorkingDirectory=/opt/haut-seat-helper
+
+# 不写 .pyc，避免只读代码目录产生告警
+Environment=PYTHONDONTWRITEBYTECODE=1
+# 输出统一 UTF-8，日志里的中文不出现乱码
+Environment=PYTHONIOENCODING=utf-8
+
+# ---- 远程浏览器登录所需的两个变量（面板里的「远程浏览器登录」用）----
+# 1) 浏览器装在哪里。默认的查找位置是 $HOME/.cache/ms-playwright，
+#    而本项目把 Chromium 装在**项目目录**下。注意：安装时就要求同一个值，
+#    光在这里指是不够的 ——
+#      sudo -u hautseat env PLAYWRIGHT_BROWSERS_PATH=/opt/haut-seat-helper/.cache/ms-playwright \
+#        /opt/haut-seat-helper/.venv/bin/python -m playwright install chromium
+#    两边不一致就会出现"明明装了却说找不到浏览器"。
+Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/haut-seat-helper/.cache/ms-playwright
+# 2) HOME。下面的 ProtectHome=true 已经把 /home、/root、/run/user 变成空目录，
+#    而 Chromium 的 node driver 会在 HOME 下放临时文件；不重定向就可能启动失败。
+#    指向 data/home（已在 ReadWritePaths 内），**建目录这一步不能省**：
+#    ReadWritePaths 里不存在的路径会让单元拒绝启动。
+#    本项目的 Python 代码不使用 HOME（没有 Path.home()/expanduser），
+#    因此这一项只影响浏览器与 node driver。
+Environment=HOME=/opt/haut-seat-helper/data/home
+
+# 启动前先建表（幂等，不会删数据）。
+# 管理员**不**在这里创建：口令不该出现在命令行或单元文件里，请手工执行一次
+#   .venv/bin/python -m haut_seat create-admin --username <你的用户名>
+ExecStartPre=/opt/haut-seat-helper/.venv/bin/python -m haut_seat init-db
+
+ExecStart=/opt/haut-seat-helper/.venv/bin/python -m haut_seat web
+
+# 面板不会自己退出；异常退出时自动重启（5 秒后）。
+# 每分钟最多 5 次的上限在 [Unit] 段的 StartLimitIntervalSec / StartLimitBurst。
+Restart=on-failure
+RestartSec=5
+
+# 停机：SIGTERM 交给 uvicorn 做优雅关闭，lifespan 收尾会停掉调度线程（最多等 5 秒）。
+# **正在执行的那一次运行不会被等待**：运行线程是守护线程，进程退出即结束，
+# 它留下的「运行中」记录会在下次启动时被判为中断（已发生过提交则判为「结果未知」，
+# 需人工核实后才能再执行，绝不自动重放）。见 docs/web-deploy.md 第 8 节。
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+StandardOutput=append:/opt/haut-seat-helper/logs/web.log
+StandardError=append:/opt/haut-seat-helper/logs/web.log
+# 说明：应用自身还会把日志写进 HAUT_LOG_FILE（默认 logs/haut_seat.log），
+# 两份内容基本重复；systemd 的 append: 不做轮转，两份都需要 logrotate 处理
+# （见 deploy/logrotate-haut-seat.example）。
+
+# ---- 基础加固 ----
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+# ProtectHome=true 会让 /home、/root、/run/user 对服务不可见且为空，
+# 因此**不要**把 WorkingDirectory 放在 /home 下（用 /opt、/srv 等目录）；
+# 若确需装在 /home 里，请改成 ProtectHome=read-only 或删掉这一行。
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+# 远程浏览器需要在 Linux 上启用 Chromium 的**自带沙箱**：在 NoNewPrivileges=true 下
+# 用不了 setuid sandbox，只能退回 user namespace（外加 zygote 的 pid namespace）。
+# 布尔形式的 true 表示**拒绝全部** namespace，Chromium 会直接起不来。
+# 列表形式只拒绝列出的那些，所以"放行 user 与 pid、其余继续拒绝"必须写成 ~ 反转。
+# 若这一项在你机器上仍起不来（内核禁用了非特权 user namespace），正确结果是让
+# 远程浏览器**如实报错**，而**不是**改成 true 之外更宽的设置、更不是 --no-sandbox。
+RestrictNamespaces=~user pid
+LockPersonality=true
+MemoryDenyWriteExecute=false
+
+# 代码目录整体只读，只放开运行态目录
+ReadWritePaths=/opt/haut-seat-helper/data /opt/haut-seat-helper/logs
+
+[Install]
+WantedBy=multi-user.target

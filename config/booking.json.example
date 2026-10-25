@@ -1,0 +1,17 @@
+{
+  "_comment": "预约任务配置示例。复制为 config/booking.json 后编辑（该文件已被 .gitignore 排除）。",
+  "_comment_start_end": "start/end 为提交给服务器的预约占用时段，格式 YYYY-MM-DD HH:MM:SS；只能预约当天。",
+  "_comment_trigger": "trigger_at=何时开始抢约（HH:MM:SS），默认 07:00:00；不早于当天 07:00。程序提前启动会等待，晚于它则立即执行。",
+  "_comment_seats": "preferred_seats 按优先级排序，第一个是首选。",
+  "trigger_at": "07:00:05",
+  "regionid": 16,
+  "start": "2026-10-16 08:00:00",
+  "end": "2026-10-16 12:00:00",
+  "preferred_seats": [
+    "十层东书库北区 01桌 B座",
+    "十层东书库北区 01桌 A座"
+  ],
+  "preferred_prefixes": [],
+  "confirmed_bookable_states": [["2", 1, false]],
+  "_comment_states": "已人工核实：seatStatus='2',isCan=1,open=False → 可预约。"
+}

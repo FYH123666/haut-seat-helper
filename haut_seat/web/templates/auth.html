@@ -1,0 +1,239 @@
+{% extends "base.html" %}
+{% block head %}
+{# 仅当确实有一个登录窗口在进行中、且 URL 带 ?wait=1 时才自动刷新。 #}
+{% if waiting %}<meta http-equiv="refresh" content="5">{% endif %}
+{% endblock %}
+{% block content %}
+
+<h1 class="h5 mb-3">认证状态</h1>
+
+{% if view %}
+{% set tone = {'valid': 'success', 'invalid': 'danger'}.get(view.status, 'warning') %}
+<div class="card shadow-sm mb-3">
+  <div class="card-body">
+    <p class="mb-2">
+      <span class="tone-badge tone-{{ tone }}">{{ view.status_label }}</span>
+      <span class="tone-badge tone-secondary">{{ view.recovery_label }}</span>
+    </p>
+    <p class="mb-2">{{ view.message or '尚未进行过预检。' }}</p>
+    <p class="text-muted small mb-3">最近检测：{{ view.checked_at or '—' }}</p>
+
+    <dl class="kv">
+      <dt>是否阻断新提交</dt>
+      <dd>
+        {% if view.blocks_submissions %}
+          <span class="tone-badge tone-danger">是</span> ——
+          管理端自建计划（及无归属的历史计划）的新提交已停止；
+          用户端计划按各自用户绑定的账号状态单独判定，不受这一项影响
+        {% else %}
+          <span class="tone-badge tone-success">否</span>
+        {% endif %}
+      </dd>
+      <dt>自动续期</dt>
+      <dd><span class="tone-badge tone-secondary">不支持</span> —— 实测令牌中没有过期时间字段，响应中也没有 refresh token，不存在可靠的续期接口</dd>
+      <dt>账号口令自动登录</dt>
+      <dd><span class="tone-badge tone-secondary">未实现且不建议</span> —— 学校登录页需要图形验证码，本项目不代填口令、不识别验证码</dd>
+      <dt>一键<strong>人工</strong>登录</dt>
+      <dd>
+        {% if view.browser_automation_supported %}
+          <span class="tone-badge tone-success">支持</span> —— 打开浏览器窗口由你本人登录，程序只负责把令牌取回来存好（见下方「凭据来源」）
+        {% else %}
+          <span class="tone-badge tone-warning">不可用</span> —— {{ view.browser_unavailable_reason }}
+        {% endif %}
+      </dd>
+    </dl>
+  </div>
+</div>
+
+<div class="card shadow-sm mb-3">
+  <div class="card-header">凭据来源</div>
+  <div class="card-body">
+    <dl class="kv">
+      <dt>本次实际使用</dt>
+      <dd>
+        {% if view.credential_source == 'snapshot' %}
+          <span class="tone-badge tone-success">{{ view.credential_source_label }}</span>
+        {% elif view.credential_source == 'env' %}
+          <span class="tone-badge tone-secondary">{{ view.credential_source_label }}</span>
+        {% else %}
+          <span class="tone-badge tone-warning">{{ view.credential_source_label }}</span>
+        {% endif %}
+        <span class="text-muted small ms-1">（HAUT_AUTH_SOURCE 生效值会随「较新的一方」变化）</span>
+      </dd>
+      <dt>浏览器会话快照</dt>
+      <dd>
+        {% if view.snapshot_present %}
+          已采集 —— 采集时间 {{ view.snapshot_captured_at or '未知' }}，
+          指纹 <code>{{ view.snapshot_fingerprint }}</code>
+        {% else %}
+          <span class="text-muted">尚无快照</span>
+        {% endif %}
+      </dd>
+      <dt>.env 手动凭据</dt>
+      <dd>{{ '已配置（值不显示）' if view.env_configured else '未配置' }}</dd>
+      <dt>是否阻断新提交</dt>
+      <dd>{{ '是' if view.blocks_submissions else '否' }}</dd>
+    </dl>
+    {% if view.credential_blocked_reason %}
+    <p class="text-danger small mb-2">{{ view.credential_blocked_reason }}</p>
+    {% endif %}
+    <p class="text-muted small mb-0">
+      指纹是令牌的 sha256 前 12 位，用于指认「当前用的是哪一份凭据」，<strong>不可反推</strong>。
+      快照文件由服务端读取，本页面只读元数据，<strong>不会</strong>把 Cookie／Token 渲染到前端。
+    </p>
+  </div>
+</div>
+
+<div class="card shadow-sm mb-3">
+  <div class="card-header">一键人工登录（消除手抄 F12 的步骤）</div>
+  <div class="card-body">
+    {% if view.browser_automation_supported %}
+      <p class="mb-2">
+        点击后会在<strong>服务器桌面</strong>打开一个浏览器窗口，
+        请你在其中<strong>正常登录</strong>图书馆网站。登录成功后程序自动把令牌取回来存成受限快照，
+        窗口随即关闭。
+      </p>
+      <p class="mb-3">
+        <strong>这是人工登录，不是自动登录</strong>：出现图形验证码时由你本人识别，
+        本项目不代填账号口令、不识别或绕过验证码，也不会因此触发任何预约提交。
+      </p>
+      <div class="action-row">
+        <form method="post" action="/admin/auth/login-browser"
+              data-confirm="将在服务器桌面打开浏览器窗口，需要你手动完成登录（含验证码）。确定继续？">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          <button class="btn btn-primary btn-sm" type="submit">打开登录浏览器</button>
+        </form>
+        <a class="btn btn-outline-secondary btn-sm" href="/admin/auth?wait=1">刷新状态</a>
+      </div>
+    {% else %}
+      <p class="mb-2">
+        <span class="tone-badge tone-warning">不可用</span> {{ view.browser_unavailable_reason }}
+      </p>
+      <p class="text-muted small mb-0">
+        请在服务器上执行：<code>pip install -e ".[auth]"</code>
+        （不会下载任何浏览器，复用系统已装的 Edge），或直接用命令行
+        <code>python -m haut_seat auth-login</code>。
+      </p>
+    {% endif %}
+
+    {% if view.login_state and view.login_state != 'idle' %}
+    <hr>
+    <p class="mb-1">
+      <span class="tone-badge tone-{{ {'captured': 'success', 'failed': 'danger'}.get(view.login_state, 'secondary') }}">
+        {{ view.login_state_label }}</span>
+      <span class="ms-1">{{ view.login_message }}</span>
+    </p>
+    {% if view.login_state == 'failed' %}
+    <p class="text-muted small mb-0">
+      若提示无法打开浏览器，通常说明 Web 服务运行在没有桌面的会话里（例如 systemd 服务或
+      Windows 服务）。此时有两条路：用下面的
+      <strong>远程浏览器登录</strong>（服务器不需要任何桌面），或用命令行
+      <code>python -m haut_seat auth-login</code>（需要图形桌面）。
+    </p>
+    {% endif %}
+    {% endif %}
+
+    {% if view.browser_automation_supported %}
+    <hr>
+    <p class="mb-0">
+      <strong>服务器上没有桌面？</strong>
+      用<a href="/admin/auth/browser">远程浏览器登录</a>：画面由服务器上的无头 Chromium
+      直接转发到面板页面里，你在自己的浏览器里就能看到真实的学校登录页，
+      用鼠标键盘完成登录（图形验证码同样由你本人识别）。
+      它也不代填账号口令、不识别或绕过验证码，不会触发任何预约提交。
+    </p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card shadow-sm mb-3">
+  <div class="card-header">操作</div>
+  <div class="card-body">
+    <div class="action-row">
+      <form method="post" action="/admin/auth/check">
+        <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+        <button class="btn btn-primary btn-sm" type="submit">重新检测登录状态</button>
+      </form>
+      <form method="post" action="/admin/auth/reload">
+        <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+        <button class="btn btn-outline-secondary btn-sm" type="submit">重新读取凭据来源</button>
+      </form>
+      <form method="post" action="/admin/auth/recover"
+            data-confirm="将进入人工恢复流程（不使用任何自动登录），确定继续？">
+        <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+        <button class="btn btn-outline-warning btn-sm" type="submit">开始人工恢复流程</button>
+      </form>
+      <form method="post" action="/admin/auth/verify">
+        <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+        <button class="btn btn-outline-success btn-sm" type="submit">我已更新凭据，重新验证</button>
+      </form>
+    </div>
+    <p class="text-muted small mt-3 mb-0">
+      「重新检测」只做一次只读查询，不会提交任何预约；
+      「重新读取凭据来源」连网络请求都不发，只重新读一次快照文件，
+      适合你刚在命令行跑完 <code>auth-login</code> 后让面板立刻反映新来源。
+      最近一次检测时间见本页顶部。
+    </p>
+  </div>
+</div>
+
+{% if view.status == 'invalid' or view.recovery_state in ('awaiting_human', 'failed') %}
+<div class="card shadow-sm mb-3 border-danger">
+  <div class="card-header text-danger">需要人工更新凭据</div>
+  <div class="card-body">
+    <ol class="mb-0">
+      {% for step in steps %}<li class="mb-1">{{ step }}</li>{% endfor %}
+    </ol>
+  </div>
+</div>
+{% endif %}
+
+<div class="card shadow-sm mb-3">
+  <div class="card-header">为什么不能自动续期</div>
+  <div class="card-body">
+    <p class="mb-2">
+      实测结论：服务端只校验 <code>Authorization</code> 请求头；令牌失效时返回 HTTP 200 + 业务
+      <code>code=401</code>（「认证失败，无法访问系统资源」）。令牌本身没有 <code>exp</code>／
+      <code>iat</code>，响应中也没有 <code>Set-Cookie</code> 或 refresh token，
+      前端代码里不存在刷新接口。因此<strong>没有可靠依据</strong>实现自动续期，
+      会话失效后必须由你本人在正常浏览器重新登录并更新凭据。
+    </p>
+    <p class="text-muted small mb-0">
+      本项目不保存账号口令，不调用登录接口，不解析验证码，也不尝试规避学校认证的任何安全控制。
+    </p>
+  </div>
+</div>
+
+{% if relogin_hint %}
+<div class="card shadow-sm mb-3">
+  <div class="card-header">命令行更新指引（与 README 一致）</div>
+  <div class="card-body">
+    <pre class="mono mb-0" style="white-space: pre-wrap;">{{ relogin_hint }}</pre>
+  </div>
+</div>
+{% endif %}
+
+<div class="card shadow-sm">
+  <div class="card-header">认证事件</div>
+  <div class="card-body">
+    {% if events %}
+    <ul class="event-list">
+      {% for e in events %}
+      <li>
+        <span class="event-time mono">{{ e.at }}</span>
+        <span class="event-phase">{{ e.status }}</span>
+        <span>{{ e.message }}</span>
+        <span class="tone-badge tone-secondary ms-1">{{ e.source }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="text-muted mb-0">还没有认证事件记录。点击「重新检测登录状态」会产生第一条。</p>
+    {% endif %}
+  </div>
+</div>
+{% else %}
+<p class="text-muted">认证服务未启用。</p>
+{% endif %}
+
+{% endblock %}

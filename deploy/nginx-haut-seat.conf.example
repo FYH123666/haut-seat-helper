@@ -1,0 +1,116 @@
+# haut-seat-helper Web 管理面板 —— nginx 反向代理示例
+#
+# 安装步骤：
+#   1) 把 server_name / 证书路径改成你自己的
+#   2) sudo cp deploy/nginx-haut-seat.conf.example /etc/nginx/sites-available/haut-seat
+#   3) sudo ln -s /etc/nginx/sites-available/haut-seat /etc/nginx/sites-enabled/
+#   4) sudo nginx -t && sudo systemctl reload nginx
+#
+# 证书可以用 certbot 申请（`sudo certbot --nginx -d 你的域名`），
+# 它会把下面的 ssl_certificate 行自动填好；本文件按「手工配置证书」写法给出。
+#
+# 注意：下面用了 `listen [::]:80` / `listen [::]:443`。若服务器没有 IPv6，
+# 请删掉带 [::] 的那两行 —— 部分环境会因地址族不可用而启动失败。
+#
+# ===== 启用本代理后，.env 里要改的两项 =====
+#   HAUT_WEB_SESSION_SECURE=true   # 必须改。HTTPS 下给会话 Cookie 加 Secure。
+#                                  # 这是静态开关，**不**看 X-Forwarded-Proto：
+#                                  # 只要对外走 HTTPS 就必须置 true，否则 Cookie 没有 Secure。
+#   HAUT_WEB_TRUST_PROXY=true      # 可选。默认 false 同样能拿到真实来源 IP：
+#                                  # HAUT_WEB_HOST=127.0.0.1 时服务只可能被本机 nginx 访问，
+#                                  # uvicorn 默认只信任本机来源，并会按「从右往左第一个不受信任
+#                                  # 的地址」解析 X-Forwarded-For，故记录的已是代理追加的真实 IP。
+#                                  # 开启 true 时，应用自己取 XFF 的**最右一项**（本代理追加的那
+#                                  # 一项），效果等价，只是不再依赖 uvicorn 的解析。
+#                                  # 前提：服务不能被绕过代理直接访问（HAUT_WEB_HOST 不要改 0.0.0.0）。
+#                                  # 两种情况都**不能**把 XFF 最左项当真实来源：那是客户端自填的。
+# 改完要重启服务：sudo systemctl restart haut-seat-web
+
+upstream haut_seat_web {
+    server 127.0.0.1:8080;
+    keepalive 8;
+}
+
+# HTTP 一律跳转到 HTTPS
+server {
+    listen 80;
+    listen [::]:80;
+    server_name seat.example.com;
+
+    # certbot 校验用（不需要 certbot 可删掉）
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    # HTTP/2 的写法与 nginx 版本有关，下面用的是**全版本可用**的写法：
+    #   nginx < 1.25.1（Debian 12 = 1.22、Ubuntu 22.04 = 1.18、Ubuntu 24.04 = 1.24）：
+    #       只能用 listen 的 http2 参数，即下面两行。
+    #   nginx >= 1.25.1：http2 参数已弃用（仍可用，只是提示），
+    #       可改成 `listen 443 ssl;` + `http2 on;`。
+    # 反向替换会出问题：在旧版 nginx 上写 `http2 on;` 会报 unknown directive，
+    # 使 nginx -t 失败、配置根本加载不了。
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name seat.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/seat.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/seat.example.com/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache   shared:SSL:10m;
+    ssl_session_timeout 1d;
+
+    # 面板只传表单，不需要大 body；收小一点减少滥用面
+    client_max_body_size 256k;
+
+    # 该面板没有任何跨站嵌入需求
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
+    # ---- 日志 ----
+    # 用默认格式即可：默认格式**不含** Authorization / Cookie 请求头。
+    # 千万不要为了调试加上 $http_authorization / $http_cookie —— 那是完整凭据，
+    # 会以明文长期留在磁盘上。
+    access_log /var/log/nginx/haut-seat.access.log;
+    error_log  /var/log/nginx/haut-seat.error.log;
+
+    location / {
+        proxy_pass http://haut_seat_web;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        # 该变量 = 客户端自带的 XFF（若有）+ 本代理看到的真实来源（$remote_addr）。
+        # 应用取的是**最后一项**（即本代理追加的那一项），所以客户端伪造的前缀无效；
+        # 若改成覆盖式写法 `$remote_addr`，结果同样正确（整条只有真实来源）。
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        # 仅供 uvicorn 判断请求 scheme；应用的 Secure Cookie 由 HAUT_WEB_SESSION_SECURE 决定，
+        # 不读取这个头。
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # 凭据类请求头原样透传（不要在这里打印它们）
+        proxy_set_header Authorization $http_authorization;
+        proxy_set_header Cookie        $http_cookie;
+
+        proxy_connect_timeout 5s;
+        proxy_read_timeout    60s;
+
+        # 面板响应不应被中间层缓存（应用自身也发了 Cache-Control: no-store）
+        proxy_buffering off;
+    }
+
+    # ---- 可选：再叠一层 Basic 认证 ----
+    # 面板本身已有登录页；再加一层可以让「登录页被扫」时多一道墙。
+    # 注意：Basic 凭据会随每个请求发送，因此**只能**在 HTTPS 下启用。
+    #
+    # location /admin {
+    #     auth_basic           "haut-seat-helper";
+    #     auth_basic_user_file /etc/nginx/.htpasswd_haut_seat;   # htpasswd -c 生成
+    #     proxy_pass http://haut_seat_web;
+    #     include /etc/nginx/proxy_params;
+    # }
+}

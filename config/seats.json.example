@@ -1,0 +1,11 @@
+{
+  "_comment": "座位优先级配置示例。复制为 config/seats.json 后按需编辑（该文件已被 .gitignore 排除）。",
+  "_comment_confirmed_bookable_states": "已验证：十层东书库北区 B座 seatStatus='2',isCan=1,open=False → 可预约。填入 [[\"2\",1,false]]。不同类型不能混用。",
+  "preferred_seat_names": [
+    "十层东书库北区 01桌 B座"
+  ],
+  "preferred_seat_name_prefixes": [
+    "十层东书库北区"
+  ],
+  "confirmed_bookable_states": [["2", 1, false]]
+}

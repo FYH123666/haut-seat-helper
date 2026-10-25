@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-12 col-sm-8 col-md-5 col-lg-4">
+    <div class="card shadow-sm">
+      <div class="card-header">登录管理面板</div>
+      <div class="card-body">
+        <form method="post" action="/admin/login" autocomplete="off">
+          <div class="mb-3">
+            <label class="form-label" for="username">用户名</label>
+            <input class="form-control" id="username" name="username" required maxlength="64"
+                   autocomplete="username" autocapitalize="off" spellcheck="false">
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="password">口令</label>
+            <input class="form-control" id="password" name="password" type="password" required
+                   autocomplete="current-password">
+          </div>
+          <button class="btn btn-primary w-100" type="submit">登录</button>
+        </form>
+        <p class="text-muted small mt-3 mb-0">
+          口令经 scrypt 加盐哈希后存储；登录失败次数过多会被临时锁定。
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

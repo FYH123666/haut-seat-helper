@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block content %}
+
+<h1 class="h5 mb-3">运行记录{% if plan_id %}（计划 #{{ plan_id }}）{% endif %}</h1>
+
+<div class="alert alert-secondary small" role="alert">
+  「提交结果未知」与「已中断」表示无法确认服务器是否已受理提交，
+  <strong>不等于预约失败</strong>，也不会被自动重跑。
+</div>
+
+<div class="card shadow-sm">
+  <div class="card-body">
+    {% if runs %}
+    <div class="table-responsive">
+      <table class="table table-sm align-middle">
+        <thead>
+          <tr><th>运行</th><th>计划</th><th>来源</th><th>所属用户</th><th>结果</th><th>错误分类</th><th>触发</th>
+              <th>开始</th><th>结束</th><th>耗时</th><th>查询</th><th>提交</th><th>预约编号</th><th>说明</th></tr>
+        </thead>
+        <tbody>
+        {% for r in runs %}
+          {% set ocode = origins.get(r.plan_id, 'admin') %}
+          <tr>
+            <td><a href="/admin/runs/{{ r.id }}">#{{ r.id }}</a></td>
+            <td class="text-truncate" style="max-width: 12rem;">{{ r.plan_name }}</td>
+            <td class="small"><span class="tone-badge tone-{{ 'dark' if ocode == 'user' else 'secondary' }}">{{ origin_labels.get(ocode, ocode) }}</span></td>
+            {# 这次运行用的是**谁的**账号。没有归属用户的行（管理端账号跑的）如实留空。 #}
+            {% set owner = plan_owners.get(r.plan_id) %}
+            <td class="small">
+              {% if owner %}
+                <a href="/admin/users">{{ owner.username }}</a>
+                {% if owner.cred_status != 'valid' %}
+                  <br><span class="tone-badge tone-{{ owner.cred_tone }}">{{ owner.cred_label }}</span>
+                {% endif %}
+              {% else %}
+                <span class="text-muted">—（管理端账号）</span>
+              {% endif %}
+            </td>
+            <td>{{ m.run_badge(r.status) }}</td>
+            <td>{{ m.err_badge(r.category) }}</td>
+            <td>{{ '手动' if r.trigger == 'manual' else '调度' }}</td>
+            <td class="mono">{{ r.started_at }}</td>
+            <td class="mono">{{ r.finished_at or '—' }}</td>
+            <td class="small">{{ run_duration_text(r) }}</td>
+            <td>{{ r.query_count }}</td>
+            <td>{{ r.submit_count }}</td>
+            <td class="mono small">{{ r.booking_id or '—' }}</td>
+            <td class="small text-truncate" style="max-width: 20rem;">{{ r.message }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="text-muted mb-0">暂无运行记录。</p>
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}

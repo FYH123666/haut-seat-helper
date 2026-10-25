@@ -1,0 +1,39 @@
+{% macro plan_badge(status) -%}
+  {%- set tone = plan_tones.get(status, 'secondary') -%}
+  <span class="tone-badge tone-{{ tone }}{{ ' tone-unknown' if status.value == 'unknown' else '' }}">{{ plan_labels.get(status, status.value) }}</span>
+{%- endmacro %}
+
+{% macro run_badge(status) -%}
+  {#- 注意：RunStatus 是 str 混入的枚举，`status is string` 对它同样为真，
+       直接走字符串分支会渲染成内部名字（"RunStatus.UNKNOWN"）而不是中文标签。
+       只有**认不出的**状态字符串才走字符串分支（库里可能存着旧值/异常值）。 -#}
+  {%- if status is string and status not in run_labels -%}
+    <span class="tone-badge tone-secondary">{{ status }}</span>
+  {%- else -%}
+    {%- set tone = run_tones.get(status, 'secondary') -%}
+    <span class="tone-badge tone-{{ tone }}{{ ' tone-unknown' if status.value in ('unknown', 'interrupted') else '' }}">{{ run_labels.get(status, status.value) }}</span>
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro err_badge(category) -%}
+  {%- if category -%}
+    <span class="tone-badge tone-secondary">{{ error_labels.get(category, category) }}</span>
+  {%- else -%}
+    <span class="text-muted small">—</span>
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro window_badge(window) -%}
+  {%- if window -%}
+    {%- set tone = {'waiting': 'info', 'open': 'success', 'expired': 'warning', 'not_today': 'secondary', 'invalid': 'danger'}.get(window[0], 'secondary') -%}
+    <span class="tone-badge tone-{{ tone }}">{{ window[1] }}</span>
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro action_button(action, plan, label, tone='secondary', confirm='') -%}
+  <form method="post" action="/admin/plans/{{ plan.id }}/{{ action }}"
+        {% if confirm %}data-confirm="{{ confirm }}"{% endif %}>
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <button class="btn btn-sm btn-{{ tone }}" type="submit">{{ label }}</button>
+  </form>
+{%- endmacro %}

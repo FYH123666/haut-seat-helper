@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+  <h1 class="h5 mb-0">预约计划</h1>
+  <a class="btn btn-primary btn-sm" href="/admin/plans/new">新建计划</a>
+</div>
+
+<div class="alert alert-secondary small" role="alert">
+  状态说明：<strong>提交结果未知</strong>表示提交请求已发出但无法确认结果，与「预约失败」不是一回事；
+  这类计划不会自动重跑，需要你先在图书馆网站核实是否已有预约记录，再勾选「已核实」恢复。
+</div>
+
+{% if not plans %}
+<div class="card shadow-sm"><div class="card-body">
+  <p class="mb-2">还没有任何计划。</p>
+  <a class="btn btn-primary btn-sm" href="/admin/plans/new">新建第一个计划</a>
+</div></div>
+{% else %}
+<div class="card shadow-sm">
+  <div class="card-body">
+    <div class="table-responsive">
+      <table class="table table-sm align-middle">
+        <thead>
+          <tr>
+            <th>#</th><th>名称</th><th>来源</th><th>所属用户</th><th>状态</th><th>窗口</th><th>执行日期 / 规则</th>
+            <th>预约时段</th><th>区域</th><th>座位</th><th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for p in plans %}
+          <tr>
+            <td>{{ p.id }}</td>
+            <td>
+              <a href="/admin/plans/{{ p.id }}">{{ p.name }}</a>
+              {% if p.stop_requested %}<span class="tone-badge tone-warning">停止中</span>{% endif %}
+              {% if p.pause_requested %}<span class="tone-badge tone-warning">暂停中</span>{% endif %}
+            </td>
+            {# 来源列：计划是在管理端建的还是在用户端提交的。用户端的计划同样进这一张表，
+               因此这里是「统一数据入口」最直接的体现。 #}
+            {% set ocode = origins.get(p.id, 'admin') %}
+            <td><span class="tone-badge tone-{{ 'dark' if ocode == 'user' else 'secondary' }}">{{ origin_labels.get(ocode, ocode) }}</span></td>
+            {# 所属用户：执行这条计划时用的是**他的**学校凭据。老计划没有归属行
+               （`user_plan` 里查不到），这里如实显示「—（管理端账号）」而不是猜一个名字。 #}
+            {% set owner = plan_owners.get(p.id) %}
+            <td class="small">
+              {% if owner %}
+                <a href="/admin/users">{{ owner.username }}</a>
+                {% if owner.cred_status != 'valid' %}
+                  <br><span class="tone-badge tone-{{ owner.cred_tone }}">{{ owner.cred_label }}</span>
+                {% endif %}
+              {% else %}
+                <span class="text-muted">—（管理端账号）</span>
+              {% endif %}
+            </td>
+            <td>{{ m.plan_badge(p.status) }}</td>
+            <td>{{ m.window_badge(window_states.get(p.id)) }}</td>
+            <td class="mono">{{ p.run_date }}<br><span class="text-muted">{{ repeat_labels.get(p.repeat_rule, p.repeat_rule) }}</span></td>
+            <td class="mono">{{ p.book_start }}<br>{{ p.book_end }}<br><span class="text-muted">触发 {{ p.trigger_at }}</span></td>
+            <td>{{ p.regionid }}</td>
+            <td class="small">
+              {% if p.preferred_seats %}{{ p.preferred_seats|length }} 个指定座位{% else %}—{% endif %}
+              {% if p.preferred_prefixes %}<br>{{ p.preferred_prefixes|length }} 个前缀{% endif %}
+            </td>
+            <td>
+              <div class="action-row">
+                {% if p.status.value == 'pending' %}
+                  {{ m.action_button('pause', p, '暂停', 'outline-warning') }}
+                  {{ m.action_button('stop', p, '停止', 'outline-secondary', '确定停止该计划？停止后不再发起新的提交。') }}
+                {% elif p.status.value == 'running' %}
+                  {{ m.action_button('pause', p, '暂停（本轮后）', 'outline-warning', '将不再启动新的运行；当前正在提交的请求不会被中断。') }}
+                  {{ m.action_button('stop', p, '停止（本轮后）', 'outline-secondary', '将不再发起新的提交；当前正在飞行的请求不会被中断。') }}
+                {% else %}
+                  {% if p.status.value == 'unknown' %}
+                    {{ m.action_button('resume', p, '恢复', 'outline-success') }}
+                  {% else %}
+                    {{ m.action_button('resume', p, '启用', 'outline-success') }}
+                  {% endif %}
+                {% endif %}
+                <a class="btn btn-sm btn-outline-primary" href="/admin/plans/{{ p.id }}/edit">编辑</a>
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
