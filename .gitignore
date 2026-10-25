@@ -1,0 +1,97 @@
+# =====================================================================
+# haut-seat-helper
+#
+# 原则：凡是「本机跑出来的」「含凭据的」「能重新生成的」一律不入库。
+# 宁可漏放一个模板文件（下面用 ! 显式放行），也不要漏挡一个秘密。
+# =====================================================================
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# --- 依赖与环境变量 ---
+.env
+.env.*
+# 唯一例外：模板文件本身必须入库（它里面没有任何真实值）
+!.env.example
+*.local.env
+
+# --- 凭据 / 密钥（无论出现在哪个目录，一律不入库）---
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+master.key
+credentials.json
+secrets.json
+
+# --- 运行产物：日志 ---
+# 注意：必须写成 logs/* 再放行 .gitkeep。
+# 若写成 `logs/`，git 根本不会进入该目录，后面的 !logs/.gitkeep 是空操作，
+# 空目录会在克隆后消失，程序首次写日志时可能因目录不存在而报错。
+logs/*
+!logs/.gitkeep
+
+# --- 运行产物：数据目录（数据库 / 认证快照 / 浏览器用户目录 / 锁文件）---
+data/*
+!data/.gitkeep
+backups/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.lock
+pause.flag
+
+# --- 凭据快照与浏览器用户目录（含会话令牌，绝不入库）---
+# 已由上面的 data/* 覆盖；这里显式再列一次，是为了让「绝不入库」这件事
+# 在将来有人收窄上面那条规则时不会被无声破坏。
+data/auth/
+data/auth/credentials.json
+data/auth/master.key
+data/auth/browser-profile/
+data/auth/login.lock
+
+# --- 临时侦察产物（抓取的页面 / 前端包 / 验证码等，可能含真实凭据）---
+.recon-tmp/
+.probe-js/
+*.har
+
+# --- 打包产物（历史上打过一版，里面裹着真实 .env，绝不入库）---
+deploy.zip
+*.zip
+*.tar.gz
+
+# --- 本地个人配置（座位偏好 / 预约任务，属个人数据）---
+config/seats.json
+config/booking.json
+# 模板必须入库
+!config/*.example
+
+# --- 测试与覆盖率 ---
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# --- 编辑器 / IDE / 操作系统 ---
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini

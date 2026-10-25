@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "haut-seat-helper"
+version = "0.1.0"
+description = "河南工业大学图书馆座位预约辅助程序（只读查询与离线测试模式）"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "httpx>=0.27",
+    "pydantic-settings>=2.2",
+]
+
+[project.optional-dependencies]
+# Web 管理面板（可选安装：pip install -e ".[web]"）。
+# 不装也能用 CLI；装了之后 `python -m haut_seat web` 才可用。
+web = [
+    "fastapi>=0.110",
+    "uvicorn>=0.27",
+    "jinja2>=3.1",
+    "python-multipart>=0.0.9",
+]
+# 浏览器辅助的**人工**登录（可选安装：pip install -e ".[auth]"）。
+# 只被"请用户本人登录一次、把令牌取出来"这一步用到；不装也完全不影响
+# 预约路径与 .env 手动凭据。安装后**不需要**执行 `playwright install`：
+# 默认复用系统已装的 Edge（channel=msedge），不下载任何浏览器。
+auth = [
+    "playwright>=1.44",
+]
+dev = [
+    "pytest>=8.0",
+    "fastapi>=0.110",
+    "uvicorn>=0.27",
+    "jinja2>=3.1",
+    "python-multipart>=0.0.9",
+    "httpx>=0.27",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["haut_seat*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
